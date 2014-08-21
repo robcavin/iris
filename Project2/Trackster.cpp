@@ -1,6 +1,4 @@
 #include "Trackster.h"
-#define _USE_MATH_DEFINES // for C
-#include <math.h>
 
 DWORD WINAPI DisplayThread(LPVOID param) {
 	Trackster* tracker = (Trackster*)param;
@@ -206,15 +204,14 @@ void Trackster::DoEyeTracking() {
 	CvBox2D32f pupil_box = this->findBounds(tempImage, { size.width/2, size.height/2 }, 2500);
 	printf("%f %f\n", pupil_box.center.x, pupil_box.center.y);
 
-	/*cvThreshold(eye_image, working_image, 254, 255, CV_THRESH_BINARY);
+	cvThreshold(eye_image, working_image, 254, 255, CV_THRESH_BINARY);
 	CvBox2D32f corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
-	*/
+
 	pupil_box.center.x *= scale;
 	pupil_box.center.y *= scale;
 	pupil_box.size.width *= scale;
 	pupil_box.size.height *= scale;
-	
-	/*
+
 	corneal_ref_box.center.x *= scale;
 	corneal_ref_box.center.y *= scale;
 	corneal_ref_box.size.width *= scale;
@@ -224,8 +221,7 @@ void Trackster::DoEyeTracking() {
 		cvEllipseBox(working_image, corneal_ref_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 		cvEllipseBox(eye_image, corneal_ref_box, CV_RGB(0, 0, 0), 1, CV_AA, log_scale);
 	}
-	*/
-	
+
 	cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 	
 	CvPoint start = { pupil_box.center.x, 0 };
@@ -236,7 +232,7 @@ void Trackster::DoEyeTracking() {
 	end = { size.width * scale, pupil_box.center.y };
 	cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
-	//cvLine(eye_image, cvPointFrom32f(pupil_box.center), cvPointFrom32f(corneal_ref_box.center), CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+	cvLine(eye_image, cvPointFrom32f(pupil_box.center), cvPointFrom32f(corneal_ref_box.center), CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 	sync = false;
 }
@@ -330,17 +326,17 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 
 		IplImage* sobelImageX = cvCreateImage(actualSize, IPL_DEPTH_16S, 1);
 		IplImage* sobelImageY = cvCreateImage(actualSize, IPL_DEPTH_16S, 1);
-		//IplImage* displayImageX = cvCreateImage(actualSize, IPL_DEPTH_8U, 1);
-		//IplImage* displayImageY = cvCreateImage(actualSize, IPL_DEPTH_8U, 1);
+		IplImage* displayImageX = cvCreateImage(actualSize, IPL_DEPTH_8U, 1);
+		IplImage* displayImageY = cvCreateImage(actualSize, IPL_DEPTH_8U, 1);
 
-		cvSobel(eye_image, sobelImageX, 1, 0, 7);
-		cvSobel(eye_image, sobelImageY, 0, 1, 7);
+		cvSobel(eye_image, sobelImageX, 1, 0, 3);
+		cvSobel(eye_image, sobelImageY, 0, 1, 3);
 
 		// For display only
-		//cvConvertScaleAbs(sobelImageX, displayImageX, 0.5, 0.5);
-		//cvConvertScaleAbs(sobelImageY, displayImageY, 0.5, 0.5);
-		//cvAddWeighted(displayImageX, 0.5, displayImageY, 0.5, 0, displayImageY);
-		cvSetImageROI(working_image, rect);
+		//cvConvertScaleAbs(sobelImage, displayImageX, 0.5, 0.5);
+		//cvConvertScaleAbs(sobelImage, displayImageY, 0.5, 0.5);
+		//cvAddWeighted(displayImageX, 0.5, displayImageY, 0.5, 127, displayImageY);
+		//cvSetImageROI(working_image, rect);
 		//cvCopy(displayImageY, working_image);
 
 		float grad_x, grad_y, grad_mag;
@@ -353,40 +349,24 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 
 		CvPoint center;
 
-		double sin_theta = sin(best_box.angle / 180 * M_PI);
-		double cos_theta = cos(best_box.angle / 180 * M_PI);
-
-		double ellipse_center_x = actualSize.width / 2;
-		double ellipse_center_y = actualSize.height / 2;
-
-		double ellipse_a_squared = (best_box.size.width / 2) * (best_box.size.width / 2);
-		double ellipse_b_squared = (best_box.size.height / 2) * (best_box.size.height / 2);
-
-		for (int i = rect.height/2 - 10; i < rect.height/2 + 10; i++) {
-			for (int j = rect.width/2 - 10; j < rect.width/2 + 10; j++) {
+		for (int i = 0; i < rect.height; i++) {
+			for (int j = 0; j < rect.width; j++) {
 
 				sum = 0;
 				for (int ii = 0; ii < rect.height; ii++) {
 					for (int jj = 0; jj < rect.width; jj++) {
-
-						float rotated_jj = (jj - ellipse_center_x)*cos_theta + (ii - ellipse_center_y)*sin_theta;
-						float rotated_ii = (jj - ellipse_center_x)*-sin_theta + (ii - ellipse_center_y)*cos_theta;
-
-						float result = (rotated_jj*rotated_jj) / ellipse_a_squared + (rotated_ii*rotated_ii) / ellipse_b_squared - 1;
-
-						if (result > -0.2 && result < 0.2 && !((i == ii) && (j == jj))) {
-
+						if (!((i == ii) && (j == jj))) {
 							grad_x = cvGet2D(sobelImageX, ii, jj).val[0];
 							grad_y = cvGet2D(sobelImageY, ii, jj).val[0];
 
 							grad_mag = sqrt(grad_x*grad_x + grad_y*grad_y);
 
-							delta_x = jj - j;
-							delta_y = ii - i;
+							delta_x = ii - i;
+							delta_y = jj - j;
 
 							delta_mag = sqrt(delta_x*delta_x + delta_y*delta_y);
 
-							if (grad_mag > 1000 && delta_mag > 0) {
+							if (grad_mag > 0 && delta_mag > 0) {
 								grad_x /= grad_mag;
 								grad_y /= grad_mag;
 
@@ -396,8 +376,6 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 								dot_product = grad_x*delta_x + grad_y*delta_y;
 
 								sum += dot_product  * dot_product;
-
-								cvSet2D(working_image, ii, jj, cvScalar(255));
 							}
 						}
 					}
@@ -410,20 +388,6 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 				}
 			}
 		}
-
-		int scale = 1024;
-		int log_scale = 10;
-
-		center.x *= scale;
-		center.y *= scale;
-
-		CvPoint start = { center.x, 0 };
-		CvPoint end = { center.x, actualSize.height * scale };
-		cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
-
-		start = { 0, center.y };
-		end = { actualSize.width * scale, center.y };
-		cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 		cvResetImageROI(eye_image);
 		cvResetImageROI(working_image);
