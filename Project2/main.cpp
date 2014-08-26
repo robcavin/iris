@@ -1,67 +1,119 @@
 #include "TracksterAVI.h"
 #include <iostream>
 
-void showCrosshair(char* windowName, IplImage* image, CvPoint center) {
-	cvSet(image, CV_RGB(255, 255, 255));
-	cvRectangle(image, { center.x - 2, center.y - 10 }, { center.x + 2, center.y + 10 }, CV_RGB(255, 0, 0), CV_FILLED);
-	cvRectangle(image, { center.x - 10, center.y - 2 }, { center.x + 10, center.y + 2 }, CV_RGB(0, 255, 0), CV_FILLED);
-	cvShowImage(windowName, image);
-}
+boolean runTracking = true;
 
-int main(int argc, char** argv)
-{
-	char h_trainingImage[256];
-	strcpy_s(h_trainingImage, "Training image");
-	cvNamedWindow(h_trainingImage, 0);  // create the demo window
-	cvResizeWindow(h_trainingImage, 1000, 1000);
-	cvMoveWindow(h_trainingImage, 1200, 600);
+DWORD WINAPI TrackingThread(LPVOID param) {
 
-	IplImage* image = cvCreateImage({ 1000, 1000 }, IPL_DEPTH_32F, 4);
-	CvPoint trainingPoints[5] = { { 500, 500 }, { 100, 100 }, { 900, 900 }, { 100, 900 }, { 900, 100 } };
+	Trackster* trackster = (Trackster*)param;
 
-	TracksterAVI trackster;
-
-	trackster.Init();
+	trackster->Init();
 
 	int frame = 0;
 
 	int nFrames = 10000;
 
 	bool captureAVI = false;
-	
+
 	if (captureAVI) {
-		trackster.PrepareAVI();
+		trackster->PrepareAVI();
 	}
 
-	trackster.StartCapture();
+	trackster->StartCapture();
 
 	DWORD start_time = GetTickCount();
 
-	int trainingIndex = 0;
-	while (frame < nFrames) {
-		trackster.NextFrame();
+	while (runTracking && !captureAVI || frame < nFrames) {
+		trackster->NextFrame();
 		frame++;
-		
-		/*
-		int key = cvWaitKey(1);
-		if (key >= 0) {
-			showCrosshair(h_trainingImage, image, trainingPoints[trainingIndex]);
-			trainingIndex = ++trainingIndex % 5;
-		}*/
 	}
 
 	DWORD end_time = GetTickCount();
 
 	if (captureAVI) {
-		trackster.CloseAVI();
+		trackster->CloseAVI();
 	}
 
-	trackster.Close();
+	trackster->Close();
 
 	std::cout << " FPS = " << nFrames * 1000.0 / (end_time - start_time);
-	std::cout << " Dropped frames = " << trackster.frameCount;
-	int i;
-	std::cin >> i;
+	std::cout << " Dropped frames = " << trackster->frameCount;
 
 	return 0;
+}
+
+
+int main(int argc, char** argv)
+{
+	Trackster trackster;
+
+	HANDLE tackingThread = CreateThread(NULL, 0, TrackingThread, &trackster, 0, NULL);
+	
+	char h_trainingView[256];
+	strcpy_s(h_trainingView, "Training image");
+	cvNamedWindow(h_trainingView, 0);  // create the demo window
+	cvResizeWindow(h_trainingView, 1000, 1000);
+	cvMoveWindow(h_trainingView, 1200, 600);
+
+	trackster.overlayView = h_trainingView;
+
+	IplImage* image = cvCreateImage({ 1000, 1000 }, IPL_DEPTH_32F, 4);
+	CvPoint trainingPoints[5] = { { 500, 500 }, { 100, 100 }, { 900, 900 }, { 100, 900 }, { 900, 100 } };
+
+	int trainingIndex = -1;
+
+	CvPoint2D32f trainingDeltas[5];
+
+	while (1) {
+		int key = cvWaitKey();
+		if (key >= 0) {
+				switch (key) {
+				case('q') :
+					trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold + 1));
+					break;
+				case('a') :
+					trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold - 1));
+					break;
+
+				case('w') :
+					trackster.glintThreshold = MIN(255, MAX(0, trackster.glintThreshold + 1));
+					break;
+				case('s') :
+					trackster.glintThreshold = MIN(255, MAX(0, trackster.glintThreshold - 1));
+					break;
+
+				case(' ') :
+					
+					// Clear this to let us take back our training image screen
+  					trackster.trained = false;
+
+					if (trainingIndex < 0) {
+						showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
+					}
+
+					else if (trainingIndex < 4) {
+						// Capture points 0, 1, 2, and 3
+						trainingDeltas[trainingIndex].x = trackster.delta_x;
+						trainingDeltas[trainingIndex].y = trackster.delta_y;
+
+						showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
+					}
+
+					else if (trainingIndex == 4) {
+						// Capture point 4
+						trainingDeltas[trainingIndex].x = trackster.delta_x;
+						trainingDeltas[trainingIndex].y = trackster.delta_y;
+						
+						// Train
+						trackster.Train(trainingDeltas, trainingPoints);
+
+						// Reset in case we want to retrain
+						trainingIndex = -1;
+					}
+					break;
+			}
+		}
+	}
+	
+	WaitForSingleObject(TrackingThread, INFINITE);
 }

@@ -1,5 +1,103 @@
 #include "Trackster.h"
 
+//-----------------------------------------------------------------
+// HELPERS
+//
+
+//---------- calibration  coefficient calculation ---------------//
+// biquadratic equation fitter               
+// x, y are coordinates of eye tracker point 
+// X is x or y coordinate of screen point    
+// computes a, b, c, d, and e in the biquadratic 
+// X = a + b*(x-inx) + c*(y-iny) + d*(x-inx)*(x-inx) + e*(y-iny)*(y-iny) 
+// where inx = x1, y1 = y1 to reduce the solution to a 4x4 matrix        
+
+BQParams dqfit(float x1, float y1,
+	float x2, float y2,
+	float x3, float y3,
+	float x4, float y4,
+	float x5, float y5,
+	float X1, float X2, float X3, float X4, float X5)
+{
+	float den;
+	float x22, x32, x42, x52;    // squared terms 
+	float y22, y32, y42, y52;
+
+	BQParams bqParams;
+
+	bqParams.offsetX = (int)x1;            // record eye tracker centering constants 
+	bqParams.offsetY = (int)y1;
+	bqParams.a = X1;                    // first coefficient 
+	X2 -= X1;  X3 -= X1;       // center screen points 
+	X4 -= X1;  X5 -= X1;
+	x2 -= x1;  x3 -= x1;       // center eye tracker points 
+	x4 -= x1;  x5 -= x1;
+	y2 -= y1;  y3 -= y1;
+	y4 -= y1;  y5 -= y1;
+	x22 = x2*x2; x32 = x3*x3;   // squared terms of biquadratic 
+	x42 = x4*x4; x52 = x5*x5;
+	y22 = y2*y2; y32 = y3*y3;
+	y42 = y4*y4; y52 = y5*y5;
+
+	//Cramer's rule solution of 4x4 matrix */
+	den = -x2*y3*x52*y42 - x22*y3*x4*y52 + x22*y5*x4*y32 - y22*x42*y3*x5 -
+		x32*y22*x4*y5 - x42*x2*y5*y32 + x32*x2*y5*y42 - y2*x52*x4*y32 +
+		x52*x2*y4*y32 + y22*x52*y3*x4 + y2*x42*x5*y32 + x22*y3*x5*y42 -
+		x32*x2*y4*y52 - x3*y22*x52*y4 + x32*y22*x5*y4 - x32*y2*x5*y42 +
+		x3*y22*x42*y5 + x3*y2*x52*y42 + x32*y2*x4*y52 + x42*x2*y3*y52 -
+		x3*y2*x42*y52 + x3*x22*y4*y52 - x22*y4*x5*y32 - x3*x22*y5*y42;
+
+	bqParams.b = (-y32*y2*x52*X4 - X2*y3*x52*y42 - x22*y3*X4*y52 + x22*y3*y42*X5 +
+		y32*y2*x42*X5 - y22*x42*y3*X5 + y22*y3*x52*X4 + X2*x42*y3*y52 +
+		X3*y2*x52*y42 - X3*y2*x42*y52 - X2*x42*y5*y32 + x32*y42*y5*X2 +
+		X2*x52*y4*y32 - x32*y4*X2*y52 - x32*y2*y42*X5 + x32*y2*X4*y52 +
+		X4*x22*y5*y32 - y42*x22*y5*X3 - x22*y4*y32*X5 + x22*y4*X3*y52 +
+		y22*x42*y5*X3 + x32*y22*y4*X5 - y22*x52*y4*X3 - x32*y22*y5*X4) / den;
+
+	bqParams.c = (-x32*x4*y22*X5 + x32*x5*y22*X4 - x32*y42*x5*X2 + x32*X2*x4*y52 +
+		x32*x2*y42*X5 - x32*x2*X4*y52 - x3*y22*x52*X4 + x3*y22*x42*X5 +
+		x3*x22*X4*y52 - x3*X2*x42*y52 + x3*X2*x52*y42 - x3*x22*y42*X5 -
+		y22*x42*x5*X3 + y22*x52*x4*X3 + x22*y42*x5*X3 - x22*x4*X3*y52 -
+		x2*y32*x42*X5 + X2*x42*x5*y32 + x2*X3*x42*y52 + x2*y32*x52*X4 +
+		x22*x4*y32*X5 - x22*X4*x5*y32 - X2*x52*x4*y32 - x2*X3*x52*y42) / den;
+
+	bqParams.d = -(-x4*y22*y3*X5 + x4*y22*y5*X3 - x4*y2*X3*y52 + x4*y2*y32*X5 -
+		x4*y32*y5*X2 + x4*y3*X2*y52 - x3*y22*y5*X4 + x3*y22*y4*X5 +
+		x3*y2*X4*y52 - x3*y2*y42*X5 + x3*y42*y5*X2 - x3*y4*X2*y52 -
+		y22*y4*x5*X3 + y22*X4*y3*x5 - y2*X4*x5*y32 + y2*y42*x5*X3 +
+		x2*y3*y42*X5 - y42*y3*x5*X2 + X4*x2*y5*y32 + y4*X2*x5*y32 -
+		y42*x2*y5*X3 - x2*y4*y32*X5 + x2*y4*X3*y52 - x2*y3*X4*y52) / den;
+
+	bqParams.e = -(-x3*y2*x52*X4 + x22*y3*x4*X5 + x22*y4*x5*X3 - x3*x42*y5*X2 -
+		x42*x2*y3*X5 + x42*x2*y5*X3 + x42*y3*x5*X2 - y2*x42*x5*X3 +
+		x32*x2*y4*X5 - x22*y3*x5*X4 + x32*y2*x5*X4 - x22*y5*x4*X3 +
+		x2*y3*x52*X4 - x52*x2*y4*X3 - x52*y3*x4*X2 - x32*y2*x4*X5 +
+		x3*x22*y5*X4 + x3*y2*x42*X5 + y2*x52*x4*X3 - x32*x5*y4*X2 -
+		x32*x2*y5*X4 + x3*x52*y4*X2 + x32*x4*y5*X2 - x3*x22*y4*X5) / den;
+
+	return bqParams;
+}
+
+
+void showCrosshair(char* windowName, IplImage* image, CvPoint2D32f center) {
+	
+	int scale = 1024;
+	int log_scale = 10;
+
+	center.x *= scale;
+	center.y *= scale;
+	
+	cvSet(image, CV_RGB(255, 255, 255));
+
+	cvRectangle(image, { center.x - 1 * scale, center.y - 10 * scale }, { center.x + 1 * scale, center.y + 10 * scale }, CV_RGB(255, 0, 0), CV_FILLED, CV_AA, log_scale);
+	cvRectangle(image, { center.x - 10 * scale, center.y - 1 * scale }, { center.x + 10 * scale, center.y + 1 * scale }, CV_RGB(0, 255, 0), CV_FILLED, CV_AA, log_scale);
+	cvShowImage(windowName, image);
+}
+//
+// END HELPERS
+//------------------------------------------------------
+
+
 DWORD WINAPI DisplayThread(LPVOID param) {
 	Trackster* tracker = (Trackster*)param;
 
@@ -7,18 +105,20 @@ DWORD WINAPI DisplayThread(LPVOID param) {
 	strcpy_s(h_eyeView, "Eye View");
 
 	cvNamedWindow(h_eyeView, 0);  // create the demo window
-	cvResizeWindow(h_eyeView, 320, 240);
+	cvResizeWindow(h_eyeView, tracker->size.width, tracker->size.height);
 	cvMoveWindow(h_eyeView, 500, 600);
 
 	IplImage* imageHeader = cvCreateImageHeader(tracker->size, IPL_DEPTH_8U, 1);
 
 	IplImage* tempImage = cvCreateImage(tracker->size, IPL_DEPTH_8U, 1);
 
+	IplImage* trackingDisplayImage = cvCreateImage({ 1000, 1000 }, IPL_DEPTH_32F, 4);
+
 	char h_workingView[256];
 	strcpy_s(h_workingView, "Working Image");
 
 	cvNamedWindow(h_workingView, 0);  // create the demo window
-	cvResizeWindow(h_workingView, 320, 240);
+	cvResizeWindow(h_workingView, tracker->size.width, tracker->size.height);
 	cvMoveWindow(h_workingView, 800, 600);
 
 	while (true) {
@@ -27,6 +127,12 @@ DWORD WINAPI DisplayThread(LPVOID param) {
 		tracker->sync = true;
 		tracker->DisplayEyeImage(h_eyeView, imageHeader, tempImage);
 		tracker->DisplayWorkingImage(h_workingView);
+
+		if (tracker->overlayView != NULL && tracker->trained) {
+			CvPoint2D32f projection = tracker->GetProjection();
+			showCrosshair(tracker->overlayView, trackingDisplayImage, projection);
+		}
+
 		tracker->sync = false;
 
 		cvWaitKey(33);
@@ -38,16 +144,17 @@ DWORD WINAPI DisplayThread(LPVOID param) {
 void Trackster::DisplayEyeImage(char* h_view, IplImage* reusableImageHeader, IplImage* tempImage) {
 	INT ret;
 	
-	char* currentImage = m_pcImageMemory;
+	/*char* currentImage = eye_image->imageData;
 	ret = is_LockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, currentImage);
 	ret = is_CopyImageMem(m_hCam, currentImage, m_lMemoryId, m_copyImageMemory);
 	ret = is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, currentImage);
+	*/
 
-	if (ret == 0) {
-		reusableImageHeader->imageData = m_copyImageMemory;
-		cvFlip(reusableImageHeader, tempImage, 1);
-		cvShowImage(h_view, tempImage);
-	}
+	//if (ret == 0) {
+		//reusableImageHeader->imageData = m_copyImageMemory;
+		//cvFlip(tempImage, eye_image, 1);
+		cvShowImage(h_view, eye_image);
+	//}
 }
 
 void Trackster::DisplayWorkingImage(char* h_view) {
@@ -60,6 +167,11 @@ Trackster::Trackster() {
 	m_hAVI = NULL;
 	frameCount = 0;
 	sync = false;
+	pupilThreshold = 8;
+	glintThreshold = 254;
+	trained = false;
+
+	overlayView = NULL;
 }
 
 Trackster::~Trackster() {
@@ -78,7 +190,7 @@ void Trackster::Init() {
 
 		//GetMaxImageSize(&m_nSizeX, &m_nSizeY);
 		m_nSizeX = 320;
-		m_nSizeY = 240;
+		m_nSizeY = 320;
 
 		// setup the color depth to the current windows setting
 		m_Ret = is_SetColorMode(m_hCam, IS_CM_MONO8);
@@ -110,34 +222,45 @@ void Trackster::Init() {
 
 		//m_Ret = is_SetSubSampling(m_hCam, IS_SUBSAMPLING_2X_HORIZONTAL | IS_SUBSAMPLING_2X_VERTICAL);
 
-		// display initialization
-		IS_RECT aoi;
-		aoi.s32X = 1000;
-		aoi.s32Y = 1000;
-		aoi.s32Width = m_nSizeX;
-		aoi.s32Height = m_nSizeY;
-		m_Ret = is_AOI(m_hCam, IS_AOI_IMAGE_SET_AOI, (void*)&aoi, sizeof(aoi));
-
 		m_Ret = is_SetDisplayMode(m_hCam, IS_SET_DM_DIB);
 
-		INT speed = 256;
-		m_Ret = is_PixelClock(m_hCam, IS_PIXELCLOCK_CMD_SET,
-			(void*)&speed, sizeof(speed));
+		// display initialization
+		IS_RECT aoi;
+		aoi.s32X = 650;
+		aoi.s32Y = 650;
+		aoi.s32Width = m_nSizeX;
+		aoi.s32Height = m_nSizeY;
+		setAOI(aoi);
 
-		m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
-		m_Ret = is_SetHardwareGain(m_hCam, IS_SET_ENABLE_AUTO_GAIN, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER);
+		//m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
+		//m_Ret = is_SetHardwareGain(m_hCam, IS_SET_ENABLE_AUTO_GAIN, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER);
 
-		m_Ret = is_SetFrameRate(m_hCam, 500, &m_fps);
+		// ROTATED
+		size.width = m_nSizeY;
+		size.height = m_nSizeX;
 
-		size.width = m_nSizeX;
-		size.height = m_nSizeY;
+		raw_image = cvCreateImageHeader({ m_nSizeX, m_nSizeY }, IPL_DEPTH_8U, 1);
 
-		eye_image = cvCreateImageHeader(size, IPL_DEPTH_8U, 1);
+		eye_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
 		working_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
 
 		mem_storage = cvCreateMemStorage(0);
 	}
 }
+
+
+void Trackster::setAOI(IS_RECT aoi) {
+	m_Ret = is_AOI(m_hCam, IS_AOI_IMAGE_SET_AOI, (void*)&aoi, sizeof(aoi));
+
+	INT speed = 256;
+	m_Ret = is_PixelClock(m_hCam, IS_PIXELCLOCK_CMD_SET, (void*)&speed, sizeof(speed));
+
+	m_Ret = is_SetFrameRate(m_hCam, 500, &m_fps);
+
+	double exposure = 0;
+	m_Ret = is_Exposure(m_hCam, IS_EXPOSURE_CMD_SET_EXPOSURE, &exposure, sizeof(exposure));
+}
+
 
 bool Trackster::StartCapture() {
 
@@ -153,6 +276,7 @@ bool Trackster::StartCapture() {
 	return true;
 }
 
+
 bool Trackster::NextFrame() {
 
 	if (!m_hCam) return false;
@@ -167,7 +291,11 @@ bool Trackster::NextFrame() {
 			}
 		}
 
-		eye_image->imageData = m_pcImageMemory;
+		raw_image->imageData = m_pcImageMemory;
+
+		cvTranspose(raw_image, eye_image);
+		cvFlip(eye_image, eye_image);
+
 		DoEyeTracking();
 		is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, m_pcImageMemory);
 	}
@@ -195,7 +323,7 @@ void Trackster::DoEyeTracking() {
 	int scale = 1024;
 	int log_scale = 10;
 
-	cvThreshold(eye_image, working_image, 25, 255, CV_THRESH_BINARY_INV);
+	cvThreshold(eye_image, working_image, pupilThreshold, 255, CV_THRESH_BINARY_INV);
 	cvSmooth(working_image, working_image, CV_GAUSSIAN, 5);
 
 	//cvDilate(working_image, working_image);
@@ -204,13 +332,27 @@ void Trackster::DoEyeTracking() {
 	CvBox2D32f pupil_box = this->findBounds(tempImage, { size.width/2, size.height/2 }, 2500);
 	printf("%f %f\n", pupil_box.center.x, pupil_box.center.y);
 
-	cvThreshold(eye_image, working_image, 254, 255, CV_THRESH_BINARY);
+	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
+	//CvBox2D32f corneal_ref_box = { 0.0, 0.0, 0.0, 0.0 };// this->findBounds(working_image, pupil_box.center, 100);
 	CvBox2D32f corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
+
+	CvPoint2D32f pupil_center = pupil_box.center;
+	CvPoint2D32f corneal_ref_center = corneal_ref_box.center;
 
 	pupil_box.center.x *= scale;
 	pupil_box.center.y *= scale;
 	pupil_box.size.width *= scale;
 	pupil_box.size.height *= scale;
+
+	cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+
+	CvPoint start = { pupil_box.center.x, 0 };
+	CvPoint end = { pupil_box.center.x, size.height * scale };
+	cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+
+	start = { 0, pupil_box.center.y };
+	end = { size.width * scale, pupil_box.center.y };
+	cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 	corneal_ref_box.center.x *= scale;
 	corneal_ref_box.center.y *= scale;
@@ -220,19 +362,12 @@ void Trackster::DoEyeTracking() {
 	if (corneal_ref_box.size.width > 0) {
 		cvEllipseBox(working_image, corneal_ref_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 		cvEllipseBox(eye_image, corneal_ref_box, CV_RGB(0, 0, 0), 1, CV_AA, log_scale);
+
+		cvLine(eye_image, cvPointFrom32f(pupil_box.center), cvPointFrom32f(corneal_ref_box.center), CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+
+		delta_x = pupil_center.x - corneal_ref_center.x;
+		delta_y = pupil_center.y - corneal_ref_center.y;
 	}
-
-	cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
-	
-	CvPoint start = { pupil_box.center.x, 0 };
-	CvPoint end = { pupil_box.center.x, size.height * scale };
-	cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
-
-	start = { 0, pupil_box.center.y };
-	end = { size.width * scale, pupil_box.center.y };
-	cvLine(eye_image, start, end, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
-
-	cvLine(eye_image, cvPointFrom32f(pupil_box.center), cvPointFrom32f(corneal_ref_box.center), CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 	sync = false;
 }
@@ -312,89 +447,65 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 		if (hull->total > 5) best_box = cvFitEllipse2(hull);
 	}
 
-	if (best_box.size.width > 0 && best_box.size.height > 0) {
-		
-		CvPoint topLeft = { best_box.center.x - best_box.size.width / 2 - 5, best_box.center.y - best_box.size.height / 2 - 5 };
-		int width = MIN(best_box.size.width + 10, 320 - topLeft.x);
-		int height = MIN(best_box.size.height + 10, 240 - topLeft.y);
-
-		CvRect rect = { topLeft.x, topLeft.y, width, height };
-
-		cvSetImageROI(eye_image, rect);
-		
-		CvSize actualSize = { eye_image->roi->width, eye_image->roi->height };
-
-		IplImage* sobelImageX = cvCreateImage(actualSize, IPL_DEPTH_16S, 1);
-		IplImage* sobelImageY = cvCreateImage(actualSize, IPL_DEPTH_16S, 1);
-		IplImage* displayImageX = cvCreateImage(actualSize, IPL_DEPTH_8U, 1);
-		IplImage* displayImageY = cvCreateImage(actualSize, IPL_DEPTH_8U, 1);
-
-		cvSobel(eye_image, sobelImageX, 1, 0, 3);
-		cvSobel(eye_image, sobelImageY, 0, 1, 3);
-
-		// For display only
-		//cvConvertScaleAbs(sobelImage, displayImageX, 0.5, 0.5);
-		//cvConvertScaleAbs(sobelImage, displayImageY, 0.5, 0.5);
-		//cvAddWeighted(displayImageX, 0.5, displayImageY, 0.5, 127, displayImageY);
-		//cvSetImageROI(working_image, rect);
-		//cvCopy(displayImageY, working_image);
-
-		float grad_x, grad_y, grad_mag;
-
-		float delta_x, delta_y, delta_mag;
-		float dot_product;
-
-		float sum;
-		float max_sum = -1;
-
-		CvPoint center;
-
-		for (int i = 0; i < rect.height; i++) {
-			for (int j = 0; j < rect.width; j++) {
-
-				sum = 0;
-				for (int ii = 0; ii < rect.height; ii++) {
-					for (int jj = 0; jj < rect.width; jj++) {
-						if (!((i == ii) && (j == jj))) {
-							grad_x = cvGet2D(sobelImageX, ii, jj).val[0];
-							grad_y = cvGet2D(sobelImageY, ii, jj).val[0];
-
-							grad_mag = sqrt(grad_x*grad_x + grad_y*grad_y);
-
-							delta_x = ii - i;
-							delta_y = jj - j;
-
-							delta_mag = sqrt(delta_x*delta_x + delta_y*delta_y);
-
-							if (grad_mag > 0 && delta_mag > 0) {
-								grad_x /= grad_mag;
-								grad_y /= grad_mag;
-
-								delta_x /= delta_mag;
-								delta_y /= delta_mag;
-
-								dot_product = grad_x*delta_x + grad_y*delta_y;
-
-								sum += dot_product  * dot_product;
-							}
-						}
-					}
-				}
-
-				if (sum > max_sum) {
-					max_sum = sum;
-					center.x = i;
-					center.y = j;
-				}
-			}
-		}
-
-		cvResetImageROI(eye_image);
-		cvResetImageROI(working_image);
-	}
-
 	return best_box;
 }
+
+bool Trackster::Train(CvPoint2D32f deltas[5], CvPoint calibPoints[5]) {
+	
+	// x fit
+	xParams = dqfit(
+		deltas[0].x, deltas[0].y,
+		deltas[1].x, deltas[1].y,
+		deltas[2].x, deltas[2].y,
+		deltas[3].x, deltas[3].y,
+		deltas[4].x, deltas[4].y,
+
+		calibPoints[0].x,
+		calibPoints[1].x,
+		calibPoints[2].x,
+		calibPoints[3].x,
+		calibPoints[4].x);
+
+
+	// y fit
+	yParams = dqfit(
+		deltas[0].x, deltas[0].y,
+		deltas[1].x, deltas[1].y,
+		deltas[2].x, deltas[2].y,
+		deltas[3].x, deltas[3].y,
+		deltas[4].x, deltas[4].y,
+
+		calibPoints[0].y,
+		calibPoints[1].y,
+		calibPoints[2].y,
+		calibPoints[3].y,
+		calibPoints[4].y);
+
+	trained = true;
+
+	return true;
+}
+
+CvPoint2D32f Trackster::GetProjection() {
+
+	if (!trained) return { 0, 0 };
+	
+	float cur_delta_x = delta_x;
+	float cur_delta_y = delta_y;
+
+	float x_adj = cur_delta_x - xParams.offsetX;
+	float y_adj = cur_delta_y - xParams.offsetY;
+
+	float x = xParams.a + xParams.b*(x_adj) + xParams.c*(y_adj) + xParams.d*(x_adj*x_adj) + xParams.e*(y_adj*y_adj);
+	
+	x_adj = cur_delta_x - yParams.offsetX;
+	y_adj = cur_delta_y - yParams.offsetY;
+
+	float y = yParams.a + yParams.b*(x_adj) + yParams.c*(y_adj) + yParams.d*(x_adj*x_adj) + yParams.e*(y_adj*y_adj);
+
+	return { x, y };
+}
+
 
 void Trackster::PrepareAVI() {
 
@@ -404,7 +515,7 @@ void Trackster::PrepareAVI() {
 
 	ret = isavi_InitAVI(&m_hAVI, m_hCam);
 
-	ret = isavi_SetImageSize(m_hAVI, IS_AVI_CM_Y8, m_nSizeX, m_nSizeY, 0, 0, 0);
+	ret = isavi_SetImageSize(m_hAVI, IS_AVI_CM_Y8, size.width, size.height, 0, 0, 0);
 	ret = isavi_OpenAVI(m_hAVI, "test.avi");
 	ret = isavi_StartAVI(m_hAVI);
 }
