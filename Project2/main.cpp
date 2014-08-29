@@ -1,7 +1,32 @@
 #include "TracksterAVI.h"
 #include <iostream>
+#include <fstream>
 
 boolean runTracking = true;
+
+CvPoint testPoints[10];
+CvPoint2D32f testProjections[10];
+int testFrames[10];
+int testPointIndex = 0;
+
+void mouseClickCallback(int event, int x, int y, int flags, void* param) {
+
+	Trackster* trackster = (Trackster*)param;
+
+	if ((event == CV_EVENT_LBUTTONDOWN) && trackster->trained && testPointIndex < 10) {
+
+		testFrames[testPointIndex] = trackster->frameCount;
+		
+		CvPoint2D32f projeciton = trackster->GetProjection();
+		testProjections[testPointIndex] = projeciton;
+
+		testPoints[testPointIndex].x = x;
+		testPoints[testPointIndex].y = y;
+
+		testPointIndex++;
+	}
+}
+
 
 DWORD WINAPI TrackingThread(LPVOID param) {
 
@@ -10,8 +35,6 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 	trackster->Init();
 
 	int frame = 0;
-
-	int nFrames = 10000;
 
 	bool captureAVI = false;
 
@@ -23,7 +46,7 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 
 	DWORD start_time = GetTickCount();
 
-	while (runTracking && !captureAVI || frame < nFrames) {
+	while (runTracking) {
 		trackster->NextFrame();
 		frame++;
 	}
@@ -36,8 +59,8 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 
 	trackster->Close();
 
-	std::cout << " FPS = " << nFrames * 1000.0 / (end_time - start_time);
-	std::cout << " Dropped frames = " << trackster->frameCount;
+	std::cout << " FPS = " << frame * 1000.0 / (end_time - start_time);
+	std::cout << " Dropped frames = " << trackster->droppedFrameCount << "\n";
 
 	return 0;
 }
@@ -45,7 +68,7 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 
 int main(int argc, char** argv)
 {
-	Trackster trackster;
+	TracksterAVI trackster;
 
 	HANDLE tackingThread = CreateThread(NULL, 0, TrackingThread, &trackster, 0, NULL);
 	
@@ -63,11 +86,38 @@ int main(int argc, char** argv)
 	int trainingIndex = -1;
 
 	CvPoint2D32f trainingDeltas[5];
+	int trainingFrames[5];
 
-	while (1) {
+	cvSetMouseCallback(h_trainingView, mouseClickCallback, &trackster);
+
+	while (runTracking) {
 		int key = cvWaitKey();
 		if (key >= 0) {
 				switch (key) {
+				case('x') :
+					runTracking = false;
+
+					if (testPointIndex > 0) {
+
+						std::ofstream outFile;
+						outFile.open("results.txt");
+
+						for (int i = 0; i < 5; i++) {
+							outFile << trainingFrames[i] << "," << trainingPoints[i].x << "," << trainingPoints[i].y;
+							outFile << "\n";
+						}
+
+						for (int i = 0; i < testPointIndex; i++) {
+							outFile << testFrames[i] << "," << testPoints[i].x << "," << testPoints[i].y;
+							outFile << "," << testProjections[i].x << "," << testProjections[i].y;
+							outFile << "\n";
+						}
+
+						outFile.close();
+					}
+
+					break;
+
 				case('q') :
 					trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold + 1));
 					break;
@@ -95,6 +145,7 @@ int main(int argc, char** argv)
 						// Capture points 0, 1, 2, and 3
 						trainingDeltas[trainingIndex].x = trackster.delta_x;
 						trainingDeltas[trainingIndex].y = trackster.delta_y;
+						trainingFrames[trainingIndex] = trackster.frameCount;
 
 						showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
 					}
@@ -103,7 +154,8 @@ int main(int argc, char** argv)
 						// Capture point 4
 						trainingDeltas[trainingIndex].x = trackster.delta_x;
 						trainingDeltas[trainingIndex].y = trackster.delta_y;
-						
+						trainingFrames[trainingIndex] = trackster.frameCount;
+
 						// Train
 						trackster.Train(trainingDeltas, trainingPoints);
 
@@ -116,4 +168,8 @@ int main(int argc, char** argv)
 	}
 	
 	WaitForSingleObject(TrackingThread, INFINITE);
+
+	std::cout << "done!\n";
+
+	cvWaitKey();
 }

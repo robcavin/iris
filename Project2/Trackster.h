@@ -51,26 +51,12 @@ protected:
 	BQParams yParams;
 
 public:
+	
 	bool sync;
-
-	Trackster();
-	~Trackster();
-
-	void Init();
-	bool StartCapture();
-	bool NextFrame();
-	void Close();
-
-	void PrepareAVI();
-	void CloseAVI();
-
-	char* overlayView;
-
-	bool Train(CvPoint2D32f deltas[5], CvPoint calibPoints[5]);
-	CvPoint2D32f GetProjection();
 	bool trained;
 
 	int frameCount;
+	int droppedFrameCount;
 	bool running;
 
 	int pupilThreshold;
@@ -80,11 +66,28 @@ public:
 	float delta_y;
 
 	CvSize size;
+	char* overlayView;
 
-	void DoEyeTracking();
+
+	Trackster();
+	
+	virtual ~Trackster();
+
+	virtual void Init();
+	virtual bool StartCapture();
+	virtual bool NextFrame();
+	virtual void Close();
+
+	virtual void PrepareAVI();
+	virtual void CloseAVI();
+
+	virtual bool Train(CvPoint2D32f deltas[5], CvPoint calibPoints[5]);
+	virtual CvPoint2D32f GetProjection();
+
+	virtual void DoEyeTracking();
 
 	// Used by bg display thread
-	void DisplayEyeImage(char* viewName, IplImage* reusableImageHeader, IplImage* tempImage);
-	void DisplayWorkingImage(char* h_view);
+	virtual void DisplayEyeImage(char* viewName, IplImage* reusableImageHeader, IplImage* tempImage);
+	virtual void DisplayWorkingImage(char* h_view);
 };
 

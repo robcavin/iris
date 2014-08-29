@@ -142,19 +142,7 @@ DWORD WINAPI DisplayThread(LPVOID param) {
 }
 
 void Trackster::DisplayEyeImage(char* h_view, IplImage* reusableImageHeader, IplImage* tempImage) {
-	INT ret;
-	
-	/*char* currentImage = eye_image->imageData;
-	ret = is_LockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, currentImage);
-	ret = is_CopyImageMem(m_hCam, currentImage, m_lMemoryId, m_copyImageMemory);
-	ret = is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, currentImage);
-	*/
-
-	//if (ret == 0) {
-		//reusableImageHeader->imageData = m_copyImageMemory;
-		//cvFlip(tempImage, eye_image, 1);
-		cvShowImage(h_view, eye_image);
-	//}
+	cvShowImage(h_view, eye_image);
 }
 
 void Trackster::DisplayWorkingImage(char* h_view) {
@@ -167,7 +155,7 @@ Trackster::Trackster() {
 	m_hAVI = NULL;
 	frameCount = 0;
 	sync = false;
-	pupilThreshold = 8;
+	pupilThreshold = 16;
 	glintThreshold = 254;
 	trained = false;
 
@@ -190,7 +178,7 @@ void Trackster::Init() {
 
 		//GetMaxImageSize(&m_nSizeX, &m_nSizeY);
 		m_nSizeX = 320;
-		m_nSizeY = 320;
+		m_nSizeY = 240;
 
 		// setup the color depth to the current windows setting
 		m_Ret = is_SetColorMode(m_hCam, IS_CM_MONO8);
@@ -226,18 +214,17 @@ void Trackster::Init() {
 
 		// display initialization
 		IS_RECT aoi;
-		aoi.s32X = 650;
-		aoi.s32Y = 650;
+		aoi.s32X = 1044;
+		aoi.s32Y = 902;
 		aoi.s32Width = m_nSizeX;
 		aoi.s32Height = m_nSizeY;
 		setAOI(aoi);
 
-		//m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
+		m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
 		//m_Ret = is_SetHardwareGain(m_hCam, IS_SET_ENABLE_AUTO_GAIN, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER);
 
-		// ROTATED
-		size.width = m_nSizeY;
-		size.height = m_nSizeX;
+		size.width = m_nSizeX;
+		size.height = m_nSizeY;
 
 		raw_image = cvCreateImageHeader({ m_nSizeX, m_nSizeY }, IPL_DEPTH_8U, 1);
 
@@ -293,14 +280,14 @@ bool Trackster::NextFrame() {
 
 		raw_image->imageData = m_pcImageMemory;
 
-		cvTranspose(raw_image, eye_image);
-		cvFlip(eye_image, eye_image);
+		cvCopy(raw_image, eye_image);
 
 		DoEyeTracking();
 		is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, m_pcImageMemory);
+		frameCount++;
 	}
 	else {
-		frameCount++;
+		droppedFrameCount++;
 	}
 
 	return true;
@@ -330,10 +317,10 @@ void Trackster::DoEyeTracking() {
 	
 	IplImage* tempImage = cvCloneImage(working_image);
 	CvBox2D32f pupil_box = this->findBounds(tempImage, { size.width/2, size.height/2 }, 2500);
-	printf("%f %f\n", pupil_box.center.x, pupil_box.center.y);
+	printf("%d %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y);
 
-	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
 	//CvBox2D32f corneal_ref_box = { 0.0, 0.0, 0.0, 0.0 };// this->findBounds(working_image, pupil_box.center, 100);
+	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
 	CvBox2D32f corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
 
 	CvPoint2D32f pupil_center = pupil_box.center;

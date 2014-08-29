@@ -12,6 +12,12 @@ private:
 	// AVI specific vars
 	CvCapture* m_video;
 
+	CvPoint trainingPoints[5];
+	CvPoint2D32f trainingDeltas[5];
+	int trainingFrames[5];
+	int trainingIndex = 0;
+	FILE *trainingFile;
+
 public:
 
 	TracksterAVI();
