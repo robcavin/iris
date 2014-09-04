@@ -11,6 +11,7 @@ private:
 
 	// AVI specific vars
 	CvCapture* m_video;
+	int m_videoIndex = 0;
 
 	CvPoint trainingPoints[5];
 	CvPoint2D32f trainingDeltas[5];

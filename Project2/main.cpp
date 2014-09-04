@@ -1,6 +1,7 @@
 #include "TracksterAVI.h"
 #include <iostream>
 #include <fstream>
+#include "SDL.h"
 
 boolean runTracking = true;
 
@@ -66,8 +67,12 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 }
 
 
-int main(int argc, char** argv)
+int main(int argc, char* args[])
 {
+	printf("Hello world\n");
+
+	SDL_Init(SDL_INIT_VIDEO);
+
 	TracksterAVI trackster;
 
 	HANDLE tackingThread = CreateThread(NULL, 0, TrackingThread, &trackster, 0, NULL);
@@ -172,4 +177,8 @@ int main(int argc, char** argv)
 	std::cout << "done!\n";
 
 	cvWaitKey();
+
+	SDL_Quit();
+
+	return 0;
 }

@@ -78,7 +78,10 @@ void TracksterAVI::Init() {
 bool TracksterAVI::StartCapture() {
 
 	//m_video = cvCaptureFromFile("C:\\Users\\Oculus VR Inc\\Documents\\Visual Studio 2013\\Projects\\Project2\\Project2\\tester.avi");
-	m_video = cvCaptureFromFile("tester.avi");
+	char filename[32];
+	sprintf_s(filename, "tester%d.avi", m_videoIndex++);
+
+	m_video = cvCaptureFromFile(filename);
 	//cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, 9320);
 
 	char buffer[256];
@@ -97,9 +100,25 @@ bool TracksterAVI::StartCapture() {
 bool TracksterAVI::NextFrame() {
 
 	IplImage* image = cvQueryFrame(m_video);
+
+	if (!image) {
+		cvReleaseCapture(&m_video);
+
+		char filename[32];
+		sprintf_s(filename, "tester%d.avi", m_videoIndex++);
+		m_video = cvCaptureFromFile(filename);
+
+		image = cvQueryFrame(m_video);
+
+		if (!image) {
+			m_videoIndex = 0;
+			return false;
+		}
+	}
+
 	if (image) {
 		cvCvtColor(image, eye_image, CV_BGR2GRAY);
-		/*DoEyeTracking();
+		DoEyeTracking();
 
 		if (!trained && (frameCount == trainingFrames[trainingIndex])) {
 			trainingDeltas[trainingIndex].x = delta_x;
@@ -118,7 +137,7 @@ bool TracksterAVI::NextFrame() {
 				trainingPoints[trainingIndex].x = x;
 				trainingPoints[trainingIndex].y = y;
 			}
-		}*/
+		}
 		frameCount++;
 	}
 	else {
