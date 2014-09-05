@@ -124,10 +124,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="TracksterRenderer.cpp" />
     <ClCompile Include="Trackster.cpp" />
     <ClCompile Include="TracksterAVI.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="TracksterRenderer.h" />
     <ClInclude Include="Trackster.h" />
     <ClInclude Include="TracksterAVI.h" />
   </ItemGroup>

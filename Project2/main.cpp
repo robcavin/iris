@@ -1,7 +1,7 @@
 #include "TracksterAVI.h"
 #include <iostream>
 #include <fstream>
-#include "SDL.h"
+#include "TracksterRenderer.h"
 
 boolean runTracking = true;
 
@@ -66,24 +66,18 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 	return 0;
 }
 
-
 int main(int argc, char* args[])
 {
 	printf("Hello world\n");
 
-	SDL_Init(SDL_INIT_VIDEO);
-
+	TracksterRenderer renderer;
 	TracksterAVI trackster;
 
-	HANDLE tackingThread = CreateThread(NULL, 0, TrackingThread, &trackster, 0, NULL);
+	renderer.hTrackster = &trackster;
 	
-	char h_trainingView[256];
-	strcpy_s(h_trainingView, "Training image");
-	cvNamedWindow(h_trainingView, 0);  // create the demo window
-	cvResizeWindow(h_trainingView, 1000, 1000);
-	cvMoveWindow(h_trainingView, 1200, 600);
+	renderer.init();
 
-	trackster.overlayView = h_trainingView;
+	HANDLE tackingThread = CreateThread(NULL, 0, TrackingThread, &trackster, 0, NULL);
 
 	IplImage* image = cvCreateImage({ 1000, 1000 }, IPL_DEPTH_32F, 4);
 	CvPoint trainingPoints[5] = { { 500, 500 }, { 100, 100 }, { 900, 900 }, { 100, 900 }, { 900, 100 } };
@@ -93,83 +87,97 @@ int main(int argc, char* args[])
 	CvPoint2D32f trainingDeltas[5];
 	int trainingFrames[5];
 
-	cvSetMouseCallback(h_trainingView, mouseClickCallback, &trackster);
+	//cvSetMouseCallback(h_trainingView, mouseClickCallback, &trackster);
+
+	SDL_Event event;
 
 	while (runTracking) {
-		int key = cvWaitKey();
-		if (key >= 0) {
-				switch (key) {
-				case('x') :
-					runTracking = false;
+		
+		while (SDL_PollEvent(&event)) {
+			
+			char key = (event.type == SDL_KEYDOWN) ? event.key.keysym.sym : -1;
+			
+			switch (key) {
+			case('x') :
+				runTracking = false;
 
-					if (testPointIndex > 0) {
+				if (testPointIndex > 0) {
 
-						std::ofstream outFile;
-						outFile.open("results.txt");
+					std::ofstream outFile;
+					outFile.open("results.txt");
 
-						for (int i = 0; i < 5; i++) {
-							outFile << trainingFrames[i] << "," << trainingPoints[i].x << "," << trainingPoints[i].y;
-							outFile << "\n";
-						}
-
-						for (int i = 0; i < testPointIndex; i++) {
-							outFile << testFrames[i] << "," << testPoints[i].x << "," << testPoints[i].y;
-							outFile << "," << testProjections[i].x << "," << testProjections[i].y;
-							outFile << "\n";
-						}
-
-						outFile.close();
+					for (int i = 0; i < 5; i++) {
+						outFile << trainingFrames[i] << "," << trainingPoints[i].x << "," << trainingPoints[i].y;
+						outFile << "\n";
 					}
 
-					break;
-
-				case('q') :
-					trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold + 1));
-					break;
-				case('a') :
-					trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold - 1));
-					break;
-
-				case('w') :
-					trackster.glintThreshold = MIN(255, MAX(0, trackster.glintThreshold + 1));
-					break;
-				case('s') :
-					trackster.glintThreshold = MIN(255, MAX(0, trackster.glintThreshold - 1));
-					break;
-
-				case(' ') :
-					
-					// Clear this to let us take back our training image screen
-  					trackster.trained = false;
-
-					if (trainingIndex < 0) {
-						showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
+					for (int i = 0; i < testPointIndex; i++) {
+						outFile << testFrames[i] << "," << testPoints[i].x << "," << testPoints[i].y;
+						outFile << "," << testProjections[i].x << "," << testProjections[i].y;
+						outFile << "\n";
 					}
 
-					else if (trainingIndex < 4) {
-						// Capture points 0, 1, 2, and 3
-						trainingDeltas[trainingIndex].x = trackster.delta_x;
-						trainingDeltas[trainingIndex].y = trackster.delta_y;
-						trainingFrames[trainingIndex] = trackster.frameCount;
+					outFile.close();
+				}
 
-						showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
-					}
+				break;
 
-					else if (trainingIndex == 4) {
-						// Capture point 4
-						trainingDeltas[trainingIndex].x = trackster.delta_x;
-						trainingDeltas[trainingIndex].y = trackster.delta_y;
-						trainingFrames[trainingIndex] = trackster.frameCount;
+			case('q') :
+				trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold + 1));
+				break;
+			case('a') :
+				trackster.pupilThreshold = MIN(255, MAX(0, trackster.pupilThreshold - 1));
+				break;
 
-						// Train
-						trackster.Train(trainingDeltas, trainingPoints);
+			case('w') :
+				trackster.glintThreshold = MIN(255, MAX(0, trackster.glintThreshold + 1));
+				break;
+			case('s') :
+				trackster.glintThreshold = MIN(255, MAX(0, trackster.glintThreshold - 1));
+				break;
 
-						// Reset in case we want to retrain
-						trainingIndex = -1;
-					}
-					break;
+			case(' ') :
+
+				// Clear this to let us take back our training image screen
+				trackster.trained = false;
+
+				if (trainingIndex < 0) {
+					//showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
+					renderer.displayStaticCrosshair = true;
+					renderer.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
+				}
+
+				else if (trainingIndex < 4) {
+					// Capture points 0, 1, 2, and 3
+					trainingDeltas[trainingIndex].x = trackster.delta_x;
+					trainingDeltas[trainingIndex].y = trackster.delta_y;
+					trainingFrames[trainingIndex] = trackster.frameCount;
+
+					//showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
+					renderer.displayStaticCrosshair = true;
+					renderer.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
+				}
+
+				else if (trainingIndex == 4) {
+					renderer.displayStaticCrosshair = false;
+
+					// Capture point 4
+					trainingDeltas[trainingIndex].x = trackster.delta_x;
+					trainingDeltas[trainingIndex].y = trackster.delta_y;
+					trainingFrames[trainingIndex] = trackster.frameCount;
+
+					// Train
+					trackster.Train(trainingDeltas, trainingPoints);
+
+					// Reset in case we want to retrain
+					trainingIndex = -1;
+				}
+				break;
 			}
 		}
+
+		renderer.render();
+
 	}
 	
 	WaitForSingleObject(TrackingThread, INFINITE);

@@ -78,95 +78,53 @@ BQParams dqfit(float x1, float y1,
 	return bqParams;
 }
 
-
-void showCrosshair(char* windowName, IplImage* image, CvPoint2D32f center) {
-	
-	int scale = 1024;
-	int log_scale = 10;
-
-	center.x *= scale;
-	center.y *= scale;
-	
-	cvSet(image, CV_RGB(255, 255, 255));
-
-	cvRectangle(image, { center.x - 1 * scale, center.y - 10 * scale }, { center.x + 1 * scale, center.y + 10 * scale }, CV_RGB(255, 0, 0), CV_FILLED, CV_AA, log_scale);
-	cvRectangle(image, { center.x - 10 * scale, center.y - 1 * scale }, { center.x + 10 * scale, center.y + 1 * scale }, CV_RGB(0, 255, 0), CV_FILLED, CV_AA, log_scale);
-	cvShowImage(windowName, image);
-}
 //
 // END HELPERS
 //------------------------------------------------------
-
-
-DWORD WINAPI DisplayThread(LPVOID param) {
-	Trackster* tracker = (Trackster*)param;
-
-	char h_eyeView[256];
-	strcpy_s(h_eyeView, "Eye View");
-
-	cvNamedWindow(h_eyeView, 0);  // create the demo window
-	cvResizeWindow(h_eyeView, tracker->size.width, tracker->size.height);
-	cvMoveWindow(h_eyeView, 500, 600);
-
-	IplImage* imageHeader = cvCreateImageHeader(tracker->size, IPL_DEPTH_8U, 1);
-
-	IplImage* tempImage = cvCreateImage(tracker->size, IPL_DEPTH_8U, 1);
-
-	IplImage* trackingDisplayImage = cvCreateImage({ 1000, 1000 }, IPL_DEPTH_32F, 4);
-
-	char h_workingView[256];
-	strcpy_s(h_workingView, "Working Image");
-
-	cvNamedWindow(h_workingView, 0);  // create the demo window
-	cvResizeWindow(h_workingView, tracker->size.width, tracker->size.height);
-	cvMoveWindow(h_workingView, 800, 600);
-
-	while (true) {
-		while (tracker->sync) {};
-
-		tracker->sync = true;
-		tracker->DisplayEyeImage(h_eyeView, imageHeader, tempImage);
-		tracker->DisplayWorkingImage(h_workingView);
-
-		if (tracker->overlayView != NULL && tracker->trained) {
-			CvPoint2D32f projection = tracker->GetProjection();
-			showCrosshair(tracker->overlayView, trackingDisplayImage, projection);
-		}
-
-		tracker->sync = false;
-
-		cvWaitKey(33);
-	}
-
-	return 0;
-}
-
-void Trackster::DisplayEyeImage(char* h_view, IplImage* reusableImageHeader, IplImage* tempImage) {
-	cvShowImage(h_view, eye_image);
-}
-
-void Trackster::DisplayWorkingImage(char* h_view) {
-	cvShowImage(h_view, working_image);
-}
 
 
 Trackster::Trackster() {
 	m_hCam = NULL;
 	m_hAVI = NULL;
 	frameCount = 0;
-	sync = false;
 	pupilThreshold = 16;
 	glintThreshold = 254;
 	trained = false;
 
 	overlayView = NULL;
+
+	lock = SDL_CreateMutex();
+	cond = SDL_CreateCond();
 }
 
 Trackster::~Trackster() {
 	this->Close();
 }
 
+void Trackster::CommonInit() {
+	
+	m_nSizeX = 320;
+	m_nSizeY = 240;
+
+	size.width = m_nSizeX;
+	size.height = m_nSizeY;
+
+	eye_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
+	working_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
+
+	eye_snapshot_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
+	working_snapshot_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
+
+	for (int i = 0; i < NUM_TEST_IMAGES; i++) {
+		test_snapshot_image[i] = cvCreateImage(size, IPL_DEPTH_8U, 1);
+	}
+
+	mem_storage = cvCreateMemStorage(0);
+}
+
 void Trackster::Init() {
+
+	CommonInit();
 
 	if (m_hCam) this->Close();
 
@@ -177,8 +135,6 @@ void Trackster::Init() {
 		is_GetSensorInfo(m_hCam, &m_sInfo);
 
 		//GetMaxImageSize(&m_nSizeX, &m_nSizeY);
-		m_nSizeX = 320;
-		m_nSizeY = 240;
 
 		// setup the color depth to the current windows setting
 		m_Ret = is_SetColorMode(m_hCam, IS_CM_MONO8);
@@ -222,16 +178,6 @@ void Trackster::Init() {
 
 		m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
 		//m_Ret = is_SetHardwareGain(m_hCam, IS_SET_ENABLE_AUTO_GAIN, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER);
-
-		size.width = m_nSizeX;
-		size.height = m_nSizeY;
-
-		raw_image = cvCreateImageHeader({ m_nSizeX, m_nSizeY }, IPL_DEPTH_8U, 1);
-
-		eye_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
-		working_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
-
-		mem_storage = cvCreateMemStorage(0);
 	}
 }
 
@@ -258,8 +204,6 @@ bool Trackster::StartCapture() {
 		//m_Ret = is_GetImageMem(m_hCam, (void**)&pLast);
 	}
 
-	HANDLE displayThread = CreateThread(NULL, 0, DisplayThread, this, 0, NULL);
-
 	return true;
 }
 
@@ -278,9 +222,7 @@ bool Trackster::NextFrame() {
 			}
 		}
 
-		raw_image->imageData = m_pcImageMemory;
-
-		cvCopy(raw_image, eye_image);
+		eye_image->imageData = m_pcImageMemory;
 
 		DoEyeTracking();
 		is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, m_pcImageMemory);
@@ -303,24 +245,29 @@ void Trackster::Close() {
 
 void Trackster::DoEyeTracking() {
 
-	while (sync) {};
-
-	sync = true;
-
 	int scale = 1024;
 	int log_scale = 10;
 
 	cvThreshold(eye_image, working_image, pupilThreshold, 255, CV_THRESH_BINARY_INV);
+
+	SDL_LockMutex(lock);
+
+	test_snapshot_image_index = 0;
+	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
+
 	cvSmooth(working_image, working_image, CV_GAUSSIAN, 5);
+
+	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
 	//cvDilate(working_image, working_image);
 	
-	IplImage* tempImage = cvCloneImage(working_image);
-	CvBox2D32f pupil_box = this->findBounds(tempImage, { size.width/2, size.height/2 }, 2500);
+	CvBox2D32f pupil_box = this->findBounds(working_image, { size.width/2, size.height/2 }, 2500);
 	printf("%d %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y);
 
 	//CvBox2D32f corneal_ref_box = { 0.0, 0.0, 0.0, 0.0 };// this->findBounds(working_image, pupil_box.center, 100);
 	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
+	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
+
 	CvBox2D32f corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
 
 	CvPoint2D32f pupil_center = pupil_box.center;
@@ -356,7 +303,14 @@ void Trackster::DoEyeTracking() {
 		delta_y = pupil_center.y - corneal_ref_center.y;
 	}
 
-	sync = false;
+	if (pendingSnapshot) {
+		cvCopy(eye_image, eye_snapshot_image);
+		cvCopy(working_image, working_snapshot_image);
+		pendingSnapshot = false;
+	}
+
+	SDL_CondSignal(cond);
+	SDL_UnlockMutex(lock);
 }
 
 CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea) {
@@ -369,6 +323,8 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 		CV_RETR_EXTERNAL,          // external contour only
 		CV_CHAIN_APPROX_SIMPLE,       // no vert or hor segment contraction
 		offset);
+
+	if (pendingSnapshot) cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
 
 	CvContour* currentContour = (CvContour*) contour;
 
@@ -429,9 +385,22 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 
 		CvSeq* hull = cvConvexHull2(best_contour, mem_storage, CV_CLOCKWISE, 1);
 
-		cvDrawContours(working_image, hull, CV_RGB(50, 50, 50), CV_RGB(128, 128, 128), 0);
-		
+		cvDrawContours(image, hull, CV_RGB(50, 50, 50), CV_RGB(128, 128, 128), 0);
 		if (hull->total > 5) best_box = cvFitEllipse2(hull);
+
+		if (pendingSnapshot) {
+			int scale = 1024;
+			int log_scale = 10;
+			
+			CvBox2D32f tempBox = best_box;
+			tempBox.center.x *= scale;
+			tempBox.center.y *= scale;
+			tempBox.size.width *= scale;
+			tempBox.size.height *= scale;
+
+			cvEllipseBox(image, tempBox, CV_RGB(0, 0, 0), 1, CV_AA, log_scale);
+			cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
+		}
 	}
 
 	return best_box;
@@ -491,6 +460,25 @@ CvPoint2D32f Trackster::GetProjection() {
 	float y = yParams.a + yParams.b*(x_adj) + yParams.c*(y_adj) + yParams.d*(x_adj*x_adj) + yParams.e*(y_adj*y_adj);
 
 	return { x, y };
+}
+
+void Trackster::UpdateImageSnapshots() {
+	SDL_LockMutex(lock);
+	pendingSnapshot = true;
+	SDL_CondWait(cond, lock);
+	SDL_UnlockMutex(lock);
+}
+
+IplImage* Trackster::GetEyeImage() {
+	return eye_snapshot_image;
+}
+
+IplImage* Trackster::GetWorkingImage() {
+	return working_snapshot_image;
+}
+
+IplImage* Trackster::GetTestImage(int index) {
+	return test_snapshot_image[index];
 }
 
 

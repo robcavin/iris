@@ -29,7 +29,4 @@ public:
 	bool NextFrame();
 	void Close();
 
-	void TracksterAVI::DisplayEyeImage(char* h_view);
-	void DisplayWorkingImage(char* h_view);
-
 };

@@ -24,12 +24,18 @@
     <ClCompile Include="TracksterAVI.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TracksterRenderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Trackster.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="TracksterAVI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TracksterRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

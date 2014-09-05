@@ -1,7 +1,12 @@
+#ifndef __TRACKSTER_H__
+#define __TRACKSTER_H__
+
 #include <uEye.h>
 #include <uEye_tools.h>
-
 #include <opencv2\opencv.hpp>
+#include <SDL.h>
+
+#define NUM_TEST_IMAGES 8
 
 typedef struct {
 	float offsetX;
@@ -39,20 +44,32 @@ private:
 
 	void setAOI(IS_RECT rect);
 
+	SDL_mutex *lock;
+	SDL_cond *cond;
+
 protected:
 	CvMemStorage* mem_storage;
 	CvSeq* contour;
-	IplImage* raw_image;
-	IplImage* eye_image;
-	IplImage* working_image;
 	CvBox2D32f findBounds(IplImage* image, CvPoint2D32f nearestTo, float minArea);
 
 	BQParams xParams;
 	BQParams yParams;
 
-public:
+	IplImage* eye_image;
+	IplImage* working_image;
 	
-	bool sync;
+	IplImage* eye_snapshot_image;
+	IplImage* working_snapshot_image;
+	
+	IplImage* test_snapshot_image[NUM_TEST_IMAGES];
+	int test_snapshot_image_index;
+
+	bool pendingSnapshot = false;
+
+	void CommonInit();
+
+public:
+
 	bool trained;
 
 	int frameCount;
@@ -67,7 +84,6 @@ public:
 
 	CvSize size;
 	char* overlayView;
-
 
 	Trackster();
 	
@@ -86,8 +102,13 @@ public:
 
 	virtual void DoEyeTracking();
 
-	// Used by bg display thread
-	virtual void DisplayEyeImage(char* viewName, IplImage* reusableImageHeader, IplImage* tempImage);
-	virtual void DisplayWorkingImage(char* h_view);
+	bool waitForUpdateRequest = false;
+
+	virtual void UpdateImageSnapshots();
+	virtual IplImage* GetEyeImage();
+	virtual IplImage* GetWorkingImage();
+
+	virtual IplImage* GetTestImage(int index);
 };
 
+#endif
