@@ -50,7 +50,8 @@ private:
 protected:
 	CvMemStorage* mem_storage;
 	CvSeq* contour;
-	CvBox2D32f findBounds(IplImage* image, CvPoint2D32f nearestTo, float minArea);
+
+	CvBox2D findBounds(IplImage* image, CvPoint2D32f nearestTo, float minArea);
 
 	BQParams xParams;
 	BQParams yParams;

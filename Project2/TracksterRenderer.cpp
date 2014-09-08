@@ -1,8 +1,9 @@
 #include "TracksterRenderer.h"
 #include <stdio.h>
 
-#define SCREEN_WIDTH  320+1000
-#define SCREEN_HEIGHT 500+1000
+#define SCREEN_SCALE  0.5
+#define SCREEN_WIDTH  SCREEN_SCALE * (320+1000)
+#define SCREEN_HEIGHT SCREEN_SCALE * (500+1000)
 
 bool TracksterRenderer::init()
 {
@@ -48,6 +49,10 @@ bool TracksterRenderer::init()
 
 			for (int i = 0; i < NUM_TEST_IMAGES; i++) {
 				gTestImageTexture[i] = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
+			}
+
+			if (SCREEN_SCALE != 1) {
+				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
 			}
 
 			//Clear screen
@@ -115,11 +120,11 @@ void TracksterRenderer::render() {
 	hTrackster->UpdateImageSnapshots();
 
 	//Render texture to screen
-	SDL_Rect rect = { 1000, 0, 320, 240 };
+	SDL_Rect rect = { SCREEN_SCALE * 1000, SCREEN_SCALE * 0, SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
 	updateTexture(gEyeTexture, hTrackster->GetEyeImage());
 	success = SDL_RenderCopy(gRenderer, gEyeTexture, NULL, &rect);
 	
-	rect = { 1000, 240, 320, 240 };
+	rect = { SCREEN_SCALE * 1000, SCREEN_SCALE * 240, SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
 	updateTexture(gWorkingTexture, hTrackster->GetWorkingImage());
 	success = SDL_RenderCopy(gRenderer, gWorkingTexture, NULL, &rect);
 
@@ -129,7 +134,7 @@ void TracksterRenderer::render() {
 
 			if (index >= NUM_TEST_IMAGES) break;
 
-			rect = { 330 * j, 1000 + (250 * i), 320, 240 };
+			rect = { SCREEN_SCALE * (330 * j), SCREEN_SCALE * (1000 + (250 * i)), SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
 			updateTexture(gTestImageTexture[index], hTrackster->GetTestImage(index));
 			success = SDL_RenderCopy(gRenderer, gTestImageTexture[index], NULL, &rect);
 		}
@@ -142,19 +147,23 @@ void TracksterRenderer::render() {
 
 		CvPoint2D32f target = hTrackster->GetProjection();
 		success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
-		SDL_RenderDrawLine(gRenderer, target.x - 5, target.y - 5, target.x + 5, target.y + 5);
-		SDL_RenderDrawLine(gRenderer, target.x - 5, target.y + 5, target.x + 5, target.y - 5);
+		SDL_RenderDrawLine(gRenderer, 
+			SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*( target.y - 5),
+			SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y + 5));
+		SDL_RenderDrawLine(gRenderer, 
+			SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*(target.y + 5),
+			SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y - 5));
 	}
 
 	if (displayStaticCrosshair) {
 		success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
 		SDL_RenderDrawLine(gRenderer, 
-			staticCrosshairCoord.x - 5, staticCrosshairCoord.y - 5, 
-			staticCrosshairCoord.x + 5, staticCrosshairCoord.y + 5);
+			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5),
+			SCREEN_SCALE*(staticCrosshairCoord.x + 5), SCREEN_SCALE*(staticCrosshairCoord.y + 5));
 
 		SDL_RenderDrawLine(gRenderer, 
-			staticCrosshairCoord.x - 5, staticCrosshairCoord.y + 5, 
-			staticCrosshairCoord.x + 5, staticCrosshairCoord.y - 5);
+			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y + 5),
+			SCREEN_SCALE*(staticCrosshairCoord.x + 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5));
 	}
 
 	//Update screen

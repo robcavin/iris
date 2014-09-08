@@ -261,14 +261,14 @@ void Trackster::DoEyeTracking() {
 
 	//cvDilate(working_image, working_image);
 	
-	CvBox2D32f pupil_box = this->findBounds(working_image, { size.width/2, size.height/2 }, 2500);
+	CvBox2D pupil_box = this->findBounds(working_image, { size.width / 2, size.height / 2 }, 2500);
 	printf("%d %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y);
 
 	//CvBox2D32f corneal_ref_box = { 0.0, 0.0, 0.0, 0.0 };// this->findBounds(working_image, pupil_box.center, 100);
 	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
 	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
-	CvBox2D32f corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
+	CvBox2D corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
 
 	CvPoint2D32f pupil_center = pupil_box.center;
 	CvPoint2D32f corneal_ref_center = corneal_ref_box.center;
@@ -313,7 +313,7 @@ void Trackster::DoEyeTracking() {
 	SDL_UnlockMutex(lock);
 }
 
-CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea) {
+CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea) {
 	CvPoint offset = cvPoint(0, 0);
 
 	cvFindContours(image,
@@ -368,7 +368,8 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 		} while (currentContour = (CvContour*) currentContour->h_next);
 	}
 
-	CvBox2D32f best_box;
+	CvBox2D best_box;
+
 	best_box.size = { 0.0, 0.0 };
 
 
@@ -392,7 +393,7 @@ CvBox2D32f Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float 
 			int scale = 1024;
 			int log_scale = 10;
 			
-			CvBox2D32f tempBox = best_box;
+			CvBox2D tempBox = best_box;
 			tempBox.center.x *= scale;
 			tempBox.center.y *= scale;
 			tempBox.size.width *= scale;
