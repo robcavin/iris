@@ -7,6 +7,7 @@
 #include <SDL.h>
 
 #define NUM_TEST_IMAGES 8
+#define NUM_ROLLING_PROJECTIONS 500
 
 typedef struct {
 	float offsetX;
@@ -110,6 +111,12 @@ public:
 	virtual IplImage* GetWorkingImage();
 
 	virtual IplImage* GetTestImage(int index);
+
+	virtual float GetAveragePrecision();
+	virtual float GetAverageAccuracy();
+
+	CvPoint2D32f rollingProjections[NUM_ROLLING_PROJECTIONS];
+	int rollingProjectionIndex = 0;
 };
 
 #endif

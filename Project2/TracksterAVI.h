@@ -14,9 +14,20 @@ private:
 	int m_videoIndex = 0;
 
 	CvPoint trainingPoints[5];
+	CvPoint testPoints[20];
+
 	CvPoint2D32f trainingDeltas[5];
+	CvPoint2D32f testDeltas[20];
+	
+	float testPrecisions[20];
+	float testAccuracies[20];
+
 	int trainingFrames[5];
+	int testFrames[20];
+
 	int trainingIndex = 0;
+	int testIndex = 0;
+
 	FILE *trainingFile;
 
 public:
@@ -29,4 +40,6 @@ public:
 	bool NextFrame();
 	void Close();
 
+	float GetAveragePrecision();
+	float GetAverageAccuracy();
 };

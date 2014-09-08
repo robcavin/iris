@@ -47,10 +47,15 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 
 	DWORD start_time = GetTickCount();
 
-	while (runTracking) {
-		trackster->NextFrame();
+	while (runTracking && trackster->NextFrame()) {
 		frame++;
 	}
+
+	float precision = trackster->GetAveragePrecision();
+	float accuracy = trackster->GetAverageAccuracy();
+
+	std::cout << "Average Precision = " << precision << "\n";
+	std::cout << "Average Accuracy = " << accuracy << "\n";
 
 	DWORD end_time = GetTickCount();
 

@@ -1,7 +1,7 @@
 #include "TracksterRenderer.h"
 #include <stdio.h>
 
-#define SCREEN_SCALE  0.5
+#define SCREEN_SCALE  1
 #define SCREEN_WIDTH  SCREEN_SCALE * (320+1000)
 #define SCREEN_HEIGHT SCREEN_SCALE * (500+1000)
 
@@ -44,15 +44,15 @@ bool TracksterRenderer::init()
 				success = false;
 			}
 
+			if (SCREEN_SCALE != 1) {
+				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
+			}
+
 			gEyeTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
 			gWorkingTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
 
 			for (int i = 0; i < NUM_TEST_IMAGES; i++) {
 				gTestImageTexture[i] = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
-			}
-
-			if (SCREEN_SCALE != 1) {
-				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
 			}
 
 			//Clear screen
@@ -117,6 +117,10 @@ void TracksterRenderer::updateTexture(SDL_Texture* texture, IplImage* image) {
 void TracksterRenderer::render() {
 	int success;
 
+	//Clear screen
+	SDL_SetRenderDrawColor(gRenderer, 0, 0, 255, 255);
+	SDL_RenderClear(gRenderer);
+
 	hTrackster->UpdateImageSnapshots();
 
 	//Render texture to screen
@@ -145,14 +149,27 @@ void TracksterRenderer::render() {
 		// Set the tracker to update at the same rate as the renderer
 		hTrackster->waitForUpdateRequest = true;
 
-		CvPoint2D32f target = hTrackster->GetProjection();
-		success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
-		SDL_RenderDrawLine(gRenderer, 
-			SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*( target.y - 5),
-			SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y + 5));
-		SDL_RenderDrawLine(gRenderer, 
-			SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*(target.y + 5),
-			SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y - 5));
+		//CvPoint2D32f target = hTrackster->GetProjection();
+		int targetProjectionIndex = hTrackster->rollingProjectionIndex;
+		CvPoint2D32f* projections = hTrackster->rollingProjections;
+
+		int curProjectionIndex = (hTrackster->rollingProjectionIndex - 50 + NUM_ROLLING_PROJECTIONS) % NUM_ROLLING_PROJECTIONS;
+		CvPoint2D32f target;
+		for (curProjectionIndex; curProjectionIndex != targetProjectionIndex;) {
+			
+			target = projections[curProjectionIndex];
+			
+			success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
+			success = SDL_RenderDrawLine(gRenderer,
+				SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*(target.y - 5),
+				SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y + 5));
+			success = SDL_RenderDrawLine(gRenderer,
+				SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*(target.y + 5),
+				SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y - 5));
+
+			curProjectionIndex++; 
+			if (curProjectionIndex >= NUM_ROLLING_PROJECTIONS) curProjectionIndex = 0;
+		}
 	}
 
 	if (displayStaticCrosshair) {

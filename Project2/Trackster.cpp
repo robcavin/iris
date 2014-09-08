@@ -482,6 +482,13 @@ IplImage* Trackster::GetTestImage(int index) {
 	return test_snapshot_image[index];
 }
 
+float Trackster::GetAveragePrecision() {
+	return 0;
+}
+
+float Trackster::GetAverageAccuracy() {
+	return 0;
+}
 
 void Trackster::PrepareAVI() {
 
