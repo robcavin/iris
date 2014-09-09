@@ -30,6 +30,8 @@ private:
 
 	FILE *trainingFile;
 
+	IplImage* prev_image;
+
 public:
 
 	TracksterAVI();

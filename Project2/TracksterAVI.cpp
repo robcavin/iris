@@ -9,7 +9,7 @@
 #define CM_PIXELS_PER_DIM 1000
 
 #define CM_PIXELS_CENTER  CM_PIXELS_PER_DIM/2
-#define PRECISION_NUM_FRAMES 50
+#define PRECISION_NUM_FRAMES 25
 
 TracksterAVI::TracksterAVI() {
 	frameCount = 0;
@@ -23,9 +23,11 @@ void TracksterAVI::Init() {
 
 	CommonInit();
 
+	prev_image = cvCreateImage(size, IPL_DEPTH_8U, 1);
+
 	// Annoying but the AVI compression and decompression compresses the color space, so 
 	//  the threshold is quite different.
-	pupilThreshold = 4;
+	pupilThreshold = 3;
 }
 
 bool TracksterAVI::StartCapture() {
@@ -58,6 +60,8 @@ bool TracksterAVI::NextFrame() {
 
 	IplImage* image = cvQueryFrame(m_video);
 
+	bool success = true;
+
 	if (!image) {
 		cvReleaseCapture(&m_video);
 
@@ -69,12 +73,24 @@ bool TracksterAVI::NextFrame() {
 
 		if (!image) {
 			m_videoIndex = 0;
-			return false;
+			success = false;
 		}
 	}
 
 	if (image) {
+
 		cvCvtColor(image, eye_image, CV_BGR2GRAY);
+
+		/*if (frameCount > 0) {
+			CvMat* result = cvCreateMat(2, 3, CV_64FC1);
+			cvEstimateRigidTransform(eye_image, prev_image, result, TRUE);
+			cvCopy(eye_image, prev_image);
+			cvWarpAffine(eye_image, eye_image, result);
+		}
+		else {
+			cvCopy(eye_image, prev_image);
+		}*/
+
 		DoEyeTracking();
 
 		// We keep track of the past second or so's worth of projections for visualization, accuracy, precision calcs
@@ -159,8 +175,9 @@ bool TracksterAVI::NextFrame() {
 				// TODO - NOT ACCURATE ENOUGH - this assumes all deltas are on unit circle
 				disp_angle = 2*atan2(sqrt(x_delta * x_delta + y_delta * y_delta)/2, CM_TO_SCREEN);
 
-				angular_precision += disp_angle * disp_angle;
-
+				// Try to filter out saccades that happened right before or after the theoretical window
+				if (disp_angle < 0.1) // 0.1 radians is a bit over 5 degrees
+					angular_precision += disp_angle * disp_angle;
 
 				// Accuracy, using average visual angle delta
 				x_delta = ((curPoint.x - CM_PIXELS_CENTER) - (accuracyTarget.x - CM_PIXELS_CENTER)) * pixel_size;
@@ -185,7 +202,9 @@ bool TracksterAVI::NextFrame() {
 			// Compute accuracy using last 100 samples with test point as target
 			int frame, x, y;
 			float delta_x, delta_y;
-			fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+			
+			int matchedItems = fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+			if (matchedItems < 0) success = false;
 
 			testIndex++;
 			testFrames[testIndex] = frame;
@@ -199,7 +218,7 @@ bool TracksterAVI::NextFrame() {
 		droppedFrameCount++;
 	}
 
-	return true;
+	return success;
 }
 
 float TracksterAVI::GetAveragePrecision() {

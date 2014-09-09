@@ -6,7 +6,7 @@
 #include <opencv2\opencv.hpp>
 #include <SDL.h>
 
-#define NUM_TEST_IMAGES 8
+#define NUM_TEST_IMAGES 10
 #define NUM_ROLLING_PROJECTIONS 500
 
 typedef struct {
@@ -48,11 +48,13 @@ private:
 	SDL_mutex *lock;
 	SDL_cond *cond;
 
+	CvPoint2D32f prevPupilBoxCenter;
+
 protected:
 	CvMemStorage* mem_storage;
 	CvSeq* contour;
 
-	CvBox2D findBounds(IplImage* image, CvPoint2D32f nearestTo, float minArea);
+	CvBox2D findBounds(IplImage* image, CvPoint2D32f nearestTo, float minArea, CvBox2D* maskArea);
 
 	BQParams xParams;
 	BQParams yParams;

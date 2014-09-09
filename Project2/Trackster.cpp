@@ -87,9 +87,11 @@ Trackster::Trackster() {
 	m_hCam = NULL;
 	m_hAVI = NULL;
 	frameCount = 0;
-	pupilThreshold = 16;
-	glintThreshold = 254;
+	pupilThreshold = 1;
+	glintThreshold = 100;
 	trained = false;
+
+	prevPupilBoxCenter = { 0.0f, 0.0f };
 
 	overlayView = NULL;
 
@@ -245,30 +247,32 @@ void Trackster::Close() {
 
 void Trackster::DoEyeTracking() {
 
-	int scale = 1024;
-	int log_scale = 10;
-
-	cvThreshold(eye_image, working_image, pupilThreshold, 255, CV_THRESH_BINARY_INV);
-
 	SDL_LockMutex(lock);
 
 	test_snapshot_image_index = 0;
+
+	int scale = 1024;
+	int log_scale = 10;
+
+	//cvDilate(working_image, working_image);
+	
+	//CvBox2D32f corneal_ref_box = { 0.0, 0.0, 0.0, 0.0 };// this->findBounds(working_image, pupil_box.center, 100);
+	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
+	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
+
+	CvBox2D corneal_ref_box = this->findBounds(working_image, prevPupilBoxCenter, 100, NULL);
+
+	cvThreshold(eye_image, working_image, pupilThreshold, 255, CV_THRESH_BINARY_INV);
+
 	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
 	cvSmooth(working_image, working_image, CV_GAUSSIAN, 5);
 
 	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
-	//cvDilate(working_image, working_image);
-	
-	CvBox2D pupil_box = this->findBounds(working_image, { size.width / 2, size.height / 2 }, 2500);
+	CvBox2D pupil_box = this->findBounds(working_image, prevPupilBoxCenter, 2500, &corneal_ref_box);
+
 	printf("%d %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y);
-
-	//CvBox2D32f corneal_ref_box = { 0.0, 0.0, 0.0, 0.0 };// this->findBounds(working_image, pupil_box.center, 100);
-	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
-	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
-
-	CvBox2D corneal_ref_box = this->findBounds(working_image, pupil_box.center, 100);
 
 	CvPoint2D32f pupil_center = pupil_box.center;
 	CvPoint2D32f corneal_ref_center = corneal_ref_box.center;
@@ -294,7 +298,10 @@ void Trackster::DoEyeTracking() {
 	corneal_ref_box.size.height *= scale;
 
 	if (corneal_ref_box.size.width > 0) {
+
+		cvEllipseBox(working_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 		cvEllipseBox(working_image, corneal_ref_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+
 		cvEllipseBox(eye_image, corneal_ref_box, CV_RGB(0, 0, 0), 1, CV_AA, log_scale);
 
 		cvLine(eye_image, cvPointFrom32f(pupil_box.center), cvPointFrom32f(corneal_ref_box.center), CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
@@ -309,11 +316,55 @@ void Trackster::DoEyeTracking() {
 		pendingSnapshot = false;
 	}
 
+	prevPupilBoxCenter = pupil_center;
+
 	SDL_CondSignal(cond);
 	SDL_UnlockMutex(lock);
+
+	cvClearMemStorage(mem_storage);
 }
 
-CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea) {
+CvSeq* removeBoxInclusionsFromSequence(CvSeq* seq, CvBox2D* maskArea, CvMemStorage* mem_storage = NULL, IplImage* image = NULL) {
+	
+
+	CvPoint* cur_point_ptr;
+	CvPoint cur_point;
+	
+	CvSeq* resultSeq = cvCreateSeq(seq->flags, seq->header_size, sizeof(CvPoint), mem_storage);
+
+	float min_height = ((CvContour*)seq)->rect.y + MAX(((CvContour*)seq)->rect.height, ((CvContour*)seq)->rect.width) / 20;
+	float mask_area_max_dim = 2.5*MAX(maskArea->size.height, maskArea->size.width);
+
+	for (int i = 0; i < seq->total; i++) {
+		cur_point_ptr = (CvPoint*)cvGetSeqElem(seq, i);
+		cur_point = *cur_point_ptr;
+		if ((
+			(cur_point.x < maskArea->center.x - mask_area_max_dim) ||
+			(cur_point.x > maskArea->center.x + mask_area_max_dim) ||
+			(cur_point.y < maskArea->center.y - mask_area_max_dim) ||
+			(cur_point.y > maskArea->center.y + mask_area_max_dim)) 
+			//&& (cur_point.y > min_height)
+			)
+		{
+			cvSeqPush(resultSeq, cur_point_ptr);
+		} 
+
+		// Display points we've removed for sanity checking
+		else {
+			if (image) {
+				for (int i = -1; i < 2; i++) {
+					for (int j = -1; j < 2; j++) {
+						cvSet2D(image, cur_point.y + i, cur_point.x + j, cvScalar(255));
+					}
+				}
+			}
+		}
+	}
+
+	return resultSeq;
+}
+
+CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea, CvBox2D* maskArea) {
 	CvPoint offset = cvPoint(0, 0);
 
 	cvFindContours(image,
@@ -321,7 +372,7 @@ CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float tar
 		&contour,
 		sizeof(CvContour),
 		CV_RETR_EXTERNAL,          // external contour only
-		CV_CHAIN_APPROX_SIMPLE,       // no vert or hor segment contraction
+		CV_CHAIN_APPROX_NONE,       // no vert or hor segment contraction
 		offset);
 
 	if (pendingSnapshot) cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
@@ -374,7 +425,15 @@ CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float tar
 
 
 	if (best_score < 10) {
+
 		best_contour->h_next = NULL;
+
+		if (maskArea != NULL) {
+			bool debugBoxExclusion = TRUE;
+			IplImage* currentImage = (debugBoxExclusion && pendingSnapshot) ? image : NULL;
+			best_contour = removeBoxInclusionsFromSequence(best_contour, maskArea, mem_storage, currentImage);
+			if (pendingSnapshot && currentImage) cvCopy(currentImage, test_snapshot_image[test_snapshot_image_index++]);
+		}
 
 		//CvMat* covMatrix = cvCreateMat(n, n, CV_32FC1);;
 		//CvMat* mean = NULL;
@@ -384,12 +443,20 @@ CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float tar
 		//cvCvtSeqToArray(best_contour, PointArray);
 		//cvCalcCovarMatrix(best_cont_array->data, 1, covMatrix, mean, 0);
 
-		CvSeq* hull = cvConvexHull2(best_contour, mem_storage, CV_CLOCKWISE, 1);
+		//CvSeq* hull = cvConvexHull2(best_contour, mem_storage, CV_CLOCKWISE, 1);
 
-		cvDrawContours(image, hull, CV_RGB(50, 50, 50), CV_RGB(128, 128, 128), 0);
-		if (hull->total > 5) best_box = cvFitEllipse2(hull);
+		cvSet(image, cvScalar(0));
+		if (best_contour->total > 5) {
+			cvDrawContours(image, best_contour, CV_RGB(255, 255, 255), CV_RGB(128, 128, 128), 0);
 
-		if (pendingSnapshot) {
+			//CvPoint* PointArray = (CvPoint *)malloc(best_contour->total * sizeof(CvPoint));
+			//cvCvtSeqToArray(best_contour, PointArray);
+
+			best_box = cvFitEllipse2(best_contour);
+		}
+
+		if (pendingSnapshot) cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
+		/*if (pendingSnapshot) {
 			int scale = 1024;
 			int log_scale = 10;
 			
@@ -401,7 +468,7 @@ CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float tar
 
 			cvEllipseBox(image, tempBox, CV_RGB(0, 0, 0), 1, CV_AA, log_scale);
 			cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
-		}
+		}*/
 	}
 
 	return best_box;

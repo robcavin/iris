@@ -153,7 +153,7 @@ void TracksterRenderer::render() {
 		int targetProjectionIndex = hTrackster->rollingProjectionIndex;
 		CvPoint2D32f* projections = hTrackster->rollingProjections;
 
-		int curProjectionIndex = (hTrackster->rollingProjectionIndex - 50 + NUM_ROLLING_PROJECTIONS) % NUM_ROLLING_PROJECTIONS;
+		int curProjectionIndex = (hTrackster->rollingProjectionIndex - 25 + NUM_ROLLING_PROJECTIONS) % NUM_ROLLING_PROJECTIONS;
 		CvPoint2D32f target;
 		for (curProjectionIndex; curProjectionIndex != targetProjectionIndex;) {
 			
