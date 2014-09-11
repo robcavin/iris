@@ -90,7 +90,7 @@ bool TracksterAVI::NextFrame() {
 		else {
 			cvCopy(eye_image, prev_image);
 		}*/
-
+		
 		DoEyeTracking();
 
 		// We keep track of the past second or so's worth of projections for visualization, accuracy, precision calcs

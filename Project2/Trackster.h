@@ -49,6 +49,7 @@ private:
 	SDL_cond *cond;
 
 	CvPoint2D32f prevPupilBoxCenter;
+	CvBox2D prevPupilBoxes[10];
 
 protected:
 	CvMemStorage* mem_storage;

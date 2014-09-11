@@ -267,11 +267,15 @@ void Trackster::DoEyeTracking() {
 	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
 	cvSmooth(working_image, working_image, CV_GAUSSIAN, 5);
-
-	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
+	//if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
 	CvBox2D pupil_box = this->findBounds(working_image, prevPupilBoxCenter, 2500, &corneal_ref_box);
-
+	
+	// Save pupil boxes for reference
+	for (int i = 9; i > 0; i--) {
+		prevPupilBoxes[i] = prevPupilBoxes[i - 1];
+	}
+	prevPupilBoxes[0] = pupil_box;
 	printf("%d %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y);
 
 	CvPoint2D32f pupil_center = pupil_box.center;
@@ -317,7 +321,7 @@ void Trackster::DoEyeTracking() {
 	}
 
 	prevPupilBoxCenter = pupil_center;
-
+		
 	SDL_CondSignal(cond);
 	SDL_UnlockMutex(lock);
 
@@ -332,19 +336,15 @@ CvSeq* removeBoxInclusionsFromSequence(CvSeq* seq, CvBox2D* maskArea, CvMemStora
 	
 	CvSeq* resultSeq = cvCreateSeq(seq->flags, seq->header_size, sizeof(CvPoint), mem_storage);
 
-	float min_height = ((CvContour*)seq)->rect.y + MAX(((CvContour*)seq)->rect.height, ((CvContour*)seq)->rect.width) / 20;
 	float mask_area_max_dim = 2.5*MAX(maskArea->size.height, maskArea->size.width);
 
 	for (int i = 0; i < seq->total; i++) {
 		cur_point_ptr = (CvPoint*)cvGetSeqElem(seq, i);
 		cur_point = *cur_point_ptr;
-		if ((
-			(cur_point.x < maskArea->center.x - mask_area_max_dim) ||
+		if ((cur_point.x < maskArea->center.x - mask_area_max_dim) ||
 			(cur_point.x > maskArea->center.x + mask_area_max_dim) ||
 			(cur_point.y < maskArea->center.y - mask_area_max_dim) ||
-			(cur_point.y > maskArea->center.y + mask_area_max_dim)) 
-			//&& (cur_point.y > min_height)
-			)
+			(cur_point.y > maskArea->center.y + mask_area_max_dim))
 		{
 			cvSeqPush(resultSeq, cur_point_ptr);
 		} 
@@ -363,6 +363,343 @@ CvSeq* removeBoxInclusionsFromSequence(CvSeq* seq, CvBox2D* maskArea, CvMemStora
 
 	return resultSeq;
 }
+
+typedef struct{
+	double x, y, majorAxis, minorAxis, angle;
+	double f1_x, f1_y, f2_x, f2_y;
+	int fitCount;
+} Ellipse_t;
+
+double acot_d(double val){
+	double acot = atan(1 / val);
+
+	return acot * 180 / M_PI;
+}
+
+void getEllipseParam(double a, double b, double c, double d, double f, double g, Ellipse_t& ellipse){
+	ellipse.x = (c * d - b * f) / (b * b - a * c);
+	ellipse.y = (a * f - b * d) / (b * b - a * c);
+
+	ellipse.majorAxis = sqrt((2 * (a*f*f + c*d*d + g*b*b - 2 * b*d*f - a*c*g)) / ((b*b - a*c)*(sqrt((a - c)*(a - c) + 4 * b*b) - (a + c))));
+	ellipse.minorAxis = sqrt((2 * (a*f*f + c*d*d + g*b*b - 2 * b*d*f - a*c*g)) / ((b*b - a*c)*(sqrt((a - c)*(a - c) + 4 * b*b) + (a + c))));
+
+	ellipse.angle = 0;
+	if (b == 0 && a < c){
+		ellipse.angle = 0;
+	}
+	else if (b == 0 && a > c){
+		ellipse.angle = 90;
+	}
+	else if (b != 0 && a < c){
+		ellipse.angle = 0.5 * acot_d((a - c) / (2 * b));
+	}
+	else if (b != 0 && a > c){
+		ellipse.angle = 90 + 0.5 * acot_d((a - c) / (2 * b));
+	}
+	if (ellipse.minorAxis > ellipse.majorAxis){
+		double temp = ellipse.majorAxis;
+		ellipse.majorAxis = ellipse.minorAxis;
+		ellipse.minorAxis = temp;
+		ellipse.angle += 90;
+	}
+
+	double temp_c;
+	if (ellipse.majorAxis > ellipse.minorAxis)
+		temp_c = sqrt(ellipse.majorAxis * ellipse.majorAxis - ellipse.minorAxis * ellipse.minorAxis);
+	else
+		temp_c = sqrt(ellipse.minorAxis * ellipse.minorAxis - ellipse.majorAxis * ellipse.majorAxis);
+	ellipse.f1_x = ellipse.x - temp_c * cos(ellipse.angle*M_PI / 180);
+	ellipse.f1_y = ellipse.y - temp_c * sin(ellipse.angle*M_PI / 180);
+	ellipse.f2_x = ellipse.x + temp_c * cos(ellipse.angle*M_PI / 180);
+	ellipse.f2_y = ellipse.y + temp_c * sin(ellipse.angle*M_PI / 180);
+}
+
+bool pointInEllipse(CvPoint point, Ellipse_t ellipse){
+	double dist1 = sqrt((point.x - ellipse.f1_x) * (point.x - ellipse.f1_x) +
+		(point.y - ellipse.f1_y) * (point.y - ellipse.f1_y));
+	double dist2 = sqrt((point.x - ellipse.f2_x) * (point.x - ellipse.f2_x) +
+		(point.y - ellipse.f2_y) * (point.y - ellipse.f2_y));
+	double max;
+	if (ellipse.majorAxis > ellipse.minorAxis)
+		max = ellipse.majorAxis;
+	else
+		max = ellipse.minorAxis;
+	if (dist1 + dist2 <= 2 * max)
+		return true;
+	else
+		return false;
+}
+
+CvSeq* pointsNearEllipseBox(CvSeq* seq, CvBox2D ellipseBox, CvMemStorage* mem_storage){
+	
+	CvPoint center;
+
+	double sin_theta = sin(ellipseBox.angle / 180 * M_PI);
+	double cos_theta = cos(ellipseBox.angle / 180 * M_PI);
+
+	double ellipse_center_x = ellipseBox.center.x;
+	double ellipse_center_y = ellipseBox.center.y;
+
+	double ellipse_a_squared = (ellipseBox.size.width / 2) * (ellipseBox.size.width / 2);
+	double ellipse_b_squared = (ellipseBox.size.height / 2) * (ellipseBox.size.height / 2);
+
+	CvSeq* result_set = cvCreateSeq(seq->flags, seq->header_size, sizeof(CvPoint), mem_storage);
+
+	CvSeqReader reader;
+	CvPoint point;
+	float rotated_x, rotated_y, result;
+	
+	cvStartReadSeq(seq, &reader);
+	
+	for (int i = 0; i < seq->total; i++) {
+		CV_READ_SEQ_ELEM(point, reader);
+
+		rotated_x = (point.x - ellipse_center_x)*cos_theta + (point.y - ellipse_center_y)*sin_theta;
+		rotated_y = (point.x - ellipse_center_x)*-sin_theta + (point.y - ellipse_center_y)*cos_theta;
+
+		result = (rotated_x*rotated_x) / ellipse_a_squared + (rotated_y*rotated_y) / ellipse_b_squared - 1;
+
+		if (result > -0.08 && result < 0.08) 
+			cvSeqPush(result_set, &point);
+	}
+
+	return result_set;
+}
+
+Ellipse_t fitEllipseRANSAC(CvSeq* contour, IplImage* image, int imageIndex) {
+	
+	Ellipse_t ellipse;
+	int count = 0;
+
+	int randomSampleIndices[5];
+	CvPoint points[5];
+
+	// Pick 5 random values
+	for (int i = 0; i < 5; i++) {
+		bool duplicate = false;
+		int randomVal;
+		do {
+			randomVal = rand() % contour->total;
+			for (int j = 0; j < i; j++) {
+				duplicate |= randomSampleIndices[i] == randomVal;
+			}
+		} while (duplicate);
+		randomSampleIndices[i] = randomVal;
+
+		points[i] = *(CvPoint*)cvGetSeqElem(contour, randomVal);
+
+		if (image) {
+			for (int ii = -2; ii < 3; ii++) {
+				for (int jj = -2; jj < 3; jj++) {
+					cvSet2D(image, points[i].y + ii, points[i].x + jj, cvScalar(255));
+				}
+			}
+		}
+	}
+
+	double aData[] = {
+		points[0].x * points[0].x, 2 * points[0].x * points[0].y, points[0].
+		y * points[0].y, 2 * points[0].x, 2 * points[0].y,
+
+		points[1].x * points[1].x, 2 * points[1].x * points[1].y, points[1].
+		y * points[1].y, 2 * points[1].x, 2 * points[1].y,
+
+		points[2].x * points[2].x, 2 * points[2].x * points[2].y, points[2].
+		y * points[2].y, 2 * points[2].x, 2 * points[2].y,
+
+		points[3].x * points[3].x, 2 * points[3].x * points[3].y, points[3].
+		y * points[3].y, 2 * points[3].x, 2 * points[3].y,
+
+		points[4].x * points[4].x, 2 * points[4].x * points[4].y, points[4].
+		y * points[4].y, 2 * points[4].x, 2 * points[4].y };
+
+	CvMat matA = cvMat(5, 5, CV_64F, aData);
+	CvMat *D, *U, *V;
+	D = cvCreateMat(5, 5, CV_64F);
+	U = cvCreateMat(5, 5, CV_64F);
+	V = cvCreateMat(5, 5, CV_64F);
+
+	cvSVD(&matA, D, U, V, CV_SVD_MODIFY_A);
+
+	double a, b, c, d, f, g;
+	a = cvmGet(V, 0, 4);
+	b = cvmGet(V, 1, 4);
+	c = cvmGet(V, 2, 4);
+	d = cvmGet(V, 3, 4);
+	f = cvmGet(V, 4, 4);
+	g = 1;
+
+	getEllipseParam(a, b, c, d, f, g, ellipse);
+
+	CvSeqReader reader;
+	CvPoint point;
+	cvStartReadSeq(contour, &reader);
+	if (ellipse.majorAxis > 0 && ellipse.minorAxis > 0){
+		for (int i = 0; i < contour->total; i++) {
+			CV_READ_SEQ_ELEM(point, reader);
+			if (pointInEllipse(point, ellipse)){
+				count++;
+			}
+		}
+	}
+
+	ellipse.fitCount = count;
+
+	return ellipse;
+}
+
+CvSeq* fitEllipseRANSAC2(CvSeq* contour, IplImage* image, CvBox2D &ellipse, CvMemStorage* memStorage) {
+
+	int randomSampleIndices[10];
+	CvSeq* subContour = cvCreateSeq(contour->flags, contour->header_size, sizeof(CvPoint), memStorage);
+
+	// Pick 5 random values
+	for (int i = 0; i < 10; i++) {
+		bool duplicate = false;
+		int randomVal;
+		do {
+			randomVal = rand() % contour->total;
+			for (int j = 0; j < i; j++) {
+				duplicate |= randomSampleIndices[i] == randomVal;
+			}
+		} while (duplicate);
+		randomSampleIndices[i] = randomVal;
+
+		cvSeqPush(subContour, (CvPoint*)cvGetSeqElem(contour, randomVal));
+
+		/*if (image) {
+			CvPoint point = *(CvPoint*)cvGetSeqElem(contour, randomVal);
+			for (int ii = -2; ii < 3; ii++) {
+				for (int jj = -2; jj < 3; jj++) {
+					cvSet2D(image, point.y + ii, point.x + jj, cvScalar(255));
+				}
+			}
+		}*/
+	}
+
+	ellipse = cvFitEllipse2(subContour);
+	
+	//cvEllipseBox(image, ellipse, CV_RGB(255, 255, 255));
+
+	return pointsNearEllipseBox(contour, ellipse, memStorage);
+}
+
+CvBox2D ellipseFit(CvSeq* contour, IplImage* image, int imageIndex) {
+
+	Ellipse_t ellipse;
+	Ellipse_t best_ellipse;
+
+	best_ellipse.fitCount = 0;
+
+	for (int i = 0; i < 1; i++) {
+		ellipse = fitEllipseRANSAC(contour, image, imageIndex);
+		if (ellipse.fitCount > best_ellipse.fitCount) 
+			best_ellipse = ellipse;
+	} 
+
+	CvBox2D result;
+	result.size.width = 0;
+
+	if (best_ellipse.fitCount > 0) {
+		result.center = { best_ellipse.x, best_ellipse.y };
+		result.size = { best_ellipse.majorAxis, best_ellipse.minorAxis };
+		result.angle = best_ellipse.angle;
+	}
+
+	return result;
+}
+
+CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, CvBox2D* prevPupilBoxes) {
+	
+	CvBox2D ellipse;
+	CvBox2D best_ellipse;
+
+	int best_count = 0;
+	CvSeq* best_sequence = NULL;
+	CvSeq* current_sequence;
+	float aspect_score;
+	
+	float filtered_aspect_ratio = 0;
+	float filtered_width = 0;
+	float filtered_height = 0;
+	float filtered_angle = 0;
+
+	float sin_theta, cos_theta, width, height, aspect_ratio;
+
+	if (!prevPupilBoxes) {
+		filtered_aspect_ratio = 1.0;
+		filtered_width = 50;
+		filtered_height = 50;
+	}
+	else {
+		int denom = 0;
+		for (int i = 0; i < 10; i++) {
+			if (prevPupilBoxes[i].size.width != 0) {
+
+				sin_theta = sin(prevPupilBoxes[i].angle / 180 * M_PI);
+				cos_theta = cos(prevPupilBoxes[i].angle / 180 * M_PI);
+
+				width = MAX(prevPupilBoxes[i].size.width/2 * cos_theta, prevPupilBoxes[i].size.height/2 * sin_theta);
+				height = MAX(prevPupilBoxes[i].size.width/2 * sin_theta, prevPupilBoxes[i].size.height/2 * cos_theta);
+				aspect_ratio = width > height ? width / height : height / width;
+
+				filtered_width += width;
+				filtered_height += height;
+				filtered_aspect_ratio += aspect_ratio;
+				denom += 1;
+			}
+		}
+
+		if (denom > 0) {
+			filtered_width /= denom;
+			filtered_height /= denom;
+			filtered_aspect_ratio /= denom;
+			filtered_angle /= denom;
+		}
+		else {
+			filtered_aspect_ratio = 1.0;
+			filtered_width = 50;
+			filtered_height = 50;
+			filtered_angle = 90;
+		}
+	}
+
+	for (int i = 0; i < 100; i++) {
+		current_sequence = fitEllipseRANSAC2(contour, image, ellipse, memStorage);
+		
+		sin_theta = sin(ellipse.angle / 180 * M_PI);
+		cos_theta = cos(ellipse.angle / 180 * M_PI);
+
+		width = MAX(ellipse.size.width/2 * cos_theta, ellipse.size.height/2 * sin_theta);
+		height = MAX(ellipse.size.width/2 * sin_theta, ellipse.size.height/2 * cos_theta);
+		aspect_ratio = width > height ? width / height : height / width;
+		
+		aspect_score = 1;
+		//aspect_score -= 1 * fabs((width / filtered_width) - 1);
+		//aspect_score -= 1 * fabs((height / filtered_height) - 1);
+		//aspect_score -= 1 * fabs((aspect_ratio / filtered_aspect_ratio) - 1);
+
+		//aspect_score -= 1 * fabs((ellipse.size.width / ellipse.size.height) - 1);
+
+		aspect_ratio = ellipse.size.width / ellipse.size.height;
+
+		if (current_sequence->total > best_count && aspect_ratio > 0.5 && aspect_ratio < 1.5) {
+			best_sequence = current_sequence;
+			best_count = current_sequence->total;
+			best_ellipse = ellipse;
+		}
+	}
+
+	ellipse.size = { 0.0, 0.0 };
+	if (best_sequence && best_count >= 5) {
+		cvDrawContours(image, best_sequence, CV_RGB(50, 50, 50), CV_RGB(128, 128, 128), 0);
+		ellipse = cvFitEllipse2(best_sequence);
+		//ellipse = best_ellipse;
+	}
+
+	return ellipse;
+}
+
 
 CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea, CvBox2D* maskArea) {
 	CvPoint offset = cvPoint(0, 0);
@@ -447,28 +784,17 @@ CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float tar
 
 		cvSet(image, cvScalar(0));
 		if (best_contour->total > 5) {
-			cvDrawContours(image, best_contour, CV_RGB(255, 255, 255), CV_RGB(128, 128, 128), 0);
+			//cvDrawContours(image, best_contour, CV_RGB(255, 255, 255), CV_RGB(128, 128, 128), 0);
 
-			//CvPoint* PointArray = (CvPoint *)malloc(best_contour->total * sizeof(CvPoint));
-			//cvCvtSeqToArray(best_contour, PointArray);
+			CvBox2D* pupilBoxHistory = (frameCount > 20) ? prevPupilBoxes : NULL;
+			if (maskArea != NULL) best_box = ellipseFit2(best_contour, image, mem_storage, pupilBoxHistory);
 
-			best_box = cvFitEllipse2(best_contour);
+			// FALLBACK FOR NOW
+			if (maskArea == NULL) // || best_box.size.width == 0)
+				best_box = cvFitEllipse2(best_contour);
 		}
 
 		if (pendingSnapshot) cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
-		/*if (pendingSnapshot) {
-			int scale = 1024;
-			int log_scale = 10;
-			
-			CvBox2D tempBox = best_box;
-			tempBox.center.x *= scale;
-			tempBox.center.y *= scale;
-			tempBox.size.width *= scale;
-			tempBox.size.height *= scale;
-
-			cvEllipseBox(image, tempBox, CV_RGB(0, 0, 0), 1, CV_AA, log_scale);
-			cvCopy(image, test_snapshot_image[test_snapshot_image_index++]);
-		}*/
 	}
 
 	return best_box;
