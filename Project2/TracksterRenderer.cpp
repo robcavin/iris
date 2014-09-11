@@ -45,7 +45,7 @@ bool TracksterRenderer::init()
 			}
 
 			if (SCREEN_SCALE != 1) {
-				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
+				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
 			}
 
 			gEyeTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
@@ -124,10 +124,15 @@ void TracksterRenderer::render() {
 	hTrackster->UpdateImageSnapshots();
 
 	//Render texture to screen
-	SDL_Rect rect = { SCREEN_SCALE * 1000, SCREEN_SCALE * 0, SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
+	SDL_Rect rect;
 	updateTexture(gEyeTexture, hTrackster->GetEyeImage());
+
+	rect = { SCREEN_SCALE * 0, SCREEN_SCALE * 0, SCREEN_SCALE * 1280, SCREEN_SCALE *  960};
 	success = SDL_RenderCopy(gRenderer, gEyeTexture, NULL, &rect);
-	
+
+	rect = { SCREEN_SCALE * 1000, SCREEN_SCALE * 0, SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
+	success = SDL_RenderCopy(gRenderer, gEyeTexture, NULL, &rect);
+
 	rect = { SCREEN_SCALE * 1000, SCREEN_SCALE * 240, SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
 	updateTexture(gWorkingTexture, hTrackster->GetWorkingImage());
 	success = SDL_RenderCopy(gRenderer, gWorkingTexture, NULL, &rect);

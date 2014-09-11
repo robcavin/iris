@@ -86,9 +86,11 @@ BQParams dqfit(float x1, float y1,
 Trackster::Trackster() {
 	m_hCam = NULL;
 	m_hAVI = NULL;
+	h_AVIwriter = NULL;
+
 	frameCount = 0;
 	pupilThreshold = 1;
-	glintThreshold = 100;
+	glintThreshold = 80;
 	trained = false;
 
 	prevPupilBoxCenter = { 0.0f, 0.0f };
@@ -217,14 +219,21 @@ bool Trackster::NextFrame() {
 	m_Ret = is_WaitForNextImage(m_hCam, 1000, &m_pcImageMemory, &m_lMemoryId);
 	if (m_Ret == IS_SUCCESS) {
 		
-		if (m_hAVI) {
-			m_Ret = isavi_AddFrame(m_hAVI, m_pcImageMemory);
-			if (m_Ret != IS_AVI_NO_ERR) {
-				m_Ret = m_Ret;
-			}
-		}
+		//if (m_hAVI) m_Ret = isavi_AddFrame(m_hAVI, m_pcImageMemory);
 
 		eye_image->imageData = m_pcImageMemory;
+
+		if (h_AVIwriter) {
+			m_Ret = cvWriteFrame(h_AVIwriter, eye_image);
+			
+			// We have to create a new video every 5k frames to avoid the 2Gig limit
+			if (frameCount > 0 && !(frameCount % 5000)) {
+				cvReleaseVideoWriter(&h_AVIwriter);
+				char filename[32];
+				sprintf_s(filename, "test_uc%d.avi", m_AVIIndex++);
+				h_AVIwriter = cvCreateVideoWriter(filename, CV_FOURCC('D', 'I', 'B', ' '), 25, size, 0);
+			}
+		}
 
 		DoEyeTracking();
 		is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, m_pcImageMemory);
@@ -276,7 +285,7 @@ void Trackster::DoEyeTracking() {
 		prevPupilBoxes[i] = prevPupilBoxes[i - 1];
 	}
 	prevPupilBoxes[0] = pupil_box;
-	printf("%d %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y);
+	printf("%d %f %f %f %f\n", frameCount, pupil_box.center.x, pupil_box.center.y, corneal_ref_box.center.x, corneal_ref_box.center.y);
 
 	CvPoint2D32f pupil_center = pupil_box.center;
 	CvPoint2D32f corneal_ref_center = corneal_ref_box.center;
@@ -286,7 +295,7 @@ void Trackster::DoEyeTracking() {
 	pupil_box.size.width *= scale;
 	pupil_box.size.height *= scale;
 
-	cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+	//cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 	CvPoint start = { pupil_box.center.x, 0 };
 	CvPoint end = { pupil_box.center.x, size.height * scale };
@@ -610,7 +619,7 @@ CvBox2D ellipseFit(CvSeq* contour, IplImage* image, int imageIndex) {
 }
 
 CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, CvBox2D* prevPupilBoxes) {
-	
+
 	CvBox2D ellipse;
 	CvBox2D best_ellipse;
 
@@ -618,7 +627,7 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 	CvSeq* best_sequence = NULL;
 	CvSeq* current_sequence;
 	float aspect_score;
-	
+
 	float filtered_aspect_ratio = 0;
 	float filtered_width = 0;
 	float filtered_height = 0;
@@ -633,20 +642,23 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 	}
 	else {
 		int denom = 0;
+		int scale;
 		for (int i = 0; i < 10; i++) {
 			if (prevPupilBoxes[i].size.width != 0) {
 
 				sin_theta = sin(prevPupilBoxes[i].angle / 180 * M_PI);
 				cos_theta = cos(prevPupilBoxes[i].angle / 180 * M_PI);
 
-				width = MAX(prevPupilBoxes[i].size.width/2 * cos_theta, prevPupilBoxes[i].size.height/2 * sin_theta);
-				height = MAX(prevPupilBoxes[i].size.width/2 * sin_theta, prevPupilBoxes[i].size.height/2 * cos_theta);
-				aspect_ratio = width > height ? width / height : height / width;
+				scale = i + 1;
+
+				width = scale* MAX(prevPupilBoxes[i].size.width / 2 * cos_theta, prevPupilBoxes[i].size.height / 2 * sin_theta);
+				height = scale * MAX(prevPupilBoxes[i].size.width / 2 * sin_theta, prevPupilBoxes[i].size.height / 2 * cos_theta);
+				aspect_ratio = scale * (width > height ? width / height : height / width);
 
 				filtered_width += width;
 				filtered_height += height;
 				filtered_aspect_ratio += aspect_ratio;
-				denom += 1;
+				denom += scale;
 			}
 		}
 
@@ -662,6 +674,13 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 			filtered_height = 50;
 			filtered_angle = 90;
 		}
+	}
+
+	if (prevPupilBoxes) {
+		for (int i = 0; i < 10; i++) {
+			printf("%f ", prevPupilBoxes[i].size.width);
+		}
+		printf("\n");
 	}
 
 	for (int i = 0; i < 100; i++) {
@@ -683,7 +702,7 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 
 		aspect_ratio = ellipse.size.width / ellipse.size.height;
 
-		if (current_sequence->total > best_count && aspect_ratio > 0.5 && aspect_ratio < 1.5) {
+		if (current_sequence->total * aspect_score > best_count && aspect_ratio > 0.5 && aspect_ratio < 1.5) {
 			best_sequence = current_sequence;
 			best_count = current_sequence->total;
 			best_ellipse = ellipse;
@@ -889,21 +908,29 @@ void Trackster::PrepareAVI() {
 
 	INT ret;
 
-	ret = isavi_InitAVI(&m_hAVI, m_hCam);
+	/*ret = isavi_InitAVI(&m_hAVI, m_hCam);
 
 	ret = isavi_SetImageSize(m_hAVI, IS_AVI_CM_Y8, size.width, size.height, 0, 0, 0);
 	ret = isavi_OpenAVI(m_hAVI, "test.avi");
-	ret = isavi_StartAVI(m_hAVI);
+	ret = isavi_StartAVI(m_hAVI);*/
+
+	char filename[32];
+	sprintf_s(filename, "test_uc%d.avi", m_AVIIndex++);
+	h_AVIwriter = cvCreateVideoWriter(filename, CV_FOURCC('D', 'I', 'B', ' '), 25, size, 0);
 }
 
 void Trackster::CloseAVI() {
 	
+	/*
 	if (!m_hAVI) return;
 
 	INT ret;
-
 	ret = isavi_StopAVI(m_hAVI);
 	ret = isavi_CloseAVI(m_hAVI);
-	ret = isavi_ExitAVI(m_hAVI);
+	ret = isavi_ExitAVI(m_hAVI);*/
+
+	if (!h_AVIwriter) return;
+	cvReleaseVideoWriter(&h_AVIwriter);
+	h_AVIwriter = NULL;
 }
 

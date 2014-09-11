@@ -65,7 +65,10 @@ DWORD WINAPI TrackingThread(LPVOID param) {
 
 	trackster->Close();
 
-	std::cout << " FPS = " << frame * 1000.0 / (end_time - start_time);
+	std::cout << " FPS = " << frame * 1000.0 / (end_time - start_time) << "\n";;
+
+	std::cout << " Attempted frames = " << frame << "\n";
+	std::cout << " Successful frames = " << trackster->frameCount << "\n";
 	std::cout << " Dropped frames = " << trackster->droppedFrameCount << "\n";
 
 	return 0;
@@ -76,7 +79,7 @@ int main(int argc, char* args[])
 	printf("Hello world\n");
 
 	TracksterRenderer renderer;
-	TracksterAVI trackster;
+	Trackster trackster;
 
 	renderer.hTrackster = &trackster;
 	

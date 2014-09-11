@@ -38,7 +38,9 @@ private:
 	SENSORINFO m_sInfo;	    // sensor information struct
 	
 	INT		m_hAVI;
-	
+	CvVideoWriter* h_AVIwriter;
+	int m_AVIIndex = 0;
+
 	double  m_fps;
 
 	char*	m_copyImageMemory;// grabber memory - pointer to buffer

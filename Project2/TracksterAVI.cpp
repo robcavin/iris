@@ -45,7 +45,7 @@ bool TracksterAVI::StartCapture() {
 	m_videoIndex = trainingFrames[trainingIndex] / PER_VIDEO_SEGMENT_FRAME_COUNT;
 
 	char filename[32];
-	sprintf_s(filename, "tester%d.avi", m_videoIndex++);
+	sprintf_s(filename, "test_uc%d.avi", m_videoIndex++);
 
 	m_video = cvCaptureFromFile(filename);
 	
@@ -66,7 +66,7 @@ bool TracksterAVI::NextFrame() {
 		cvReleaseCapture(&m_video);
 
 		char filename[32];
-		sprintf_s(filename, "tester%d.avi", m_videoIndex++);
+		sprintf_s(filename, "test_uc%d.avi", m_videoIndex++);
 		m_video = cvCaptureFromFile(filename);
 
 		image = cvQueryFrame(m_video);
