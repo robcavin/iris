@@ -90,7 +90,7 @@ Trackster::Trackster() {
 
 	frameCount = 0;
 	pupilThreshold = 1;
-	glintThreshold = 80;
+	glintThreshold = 100;
 	trained = false;
 
 	prevPupilBoxCenter = { 0.0f, 0.0f };
@@ -276,7 +276,7 @@ void Trackster::DoEyeTracking() {
 	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
 	cvSmooth(working_image, working_image, CV_GAUSSIAN, 5);
-	//if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
+	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
 	CvBox2D pupil_box = this->findBounds(working_image, prevPupilBoxCenter, 2500, &corneal_ref_box);
 	
@@ -295,7 +295,7 @@ void Trackster::DoEyeTracking() {
 	pupil_box.size.width *= scale;
 	pupil_box.size.height *= scale;
 
-	//cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+	cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 	CvPoint start = { pupil_box.center.x, 0 };
 	CvPoint end = { pupil_box.center.x, size.height * scale };
@@ -344,6 +344,7 @@ CvSeq* removeBoxInclusionsFromSequence(CvSeq* seq, CvBox2D* maskArea, CvMemStora
 	CvPoint cur_point;
 	
 	CvSeq* resultSeq = cvCreateSeq(seq->flags, seq->header_size, sizeof(CvPoint), mem_storage);
+	((CvContour*)resultSeq)->rect = ((CvContour*)seq)->rect;
 
 	float mask_area_max_dim = 2.5*MAX(maskArea->size.height, maskArea->size.width);
 
@@ -676,13 +677,6 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 		}
 	}
 
-	if (prevPupilBoxes) {
-		for (int i = 0; i < 10; i++) {
-			printf("%f ", prevPupilBoxes[i].size.width);
-		}
-		printf("\n");
-	}
-
 	for (int i = 0; i < 100; i++) {
 		current_sequence = fitEllipseRANSAC2(contour, image, ellipse, memStorage);
 		
@@ -702,7 +696,7 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 
 		aspect_ratio = ellipse.size.width / ellipse.size.height;
 
-		if (current_sequence->total * aspect_score > best_count && aspect_ratio > 0.5 && aspect_ratio < 1.5) {
+		if (current_sequence->total > best_count && aspect_ratio > 0.5 && aspect_ratio < 1.5) {
 			best_sequence = current_sequence;
 			best_count = current_sequence->total;
 			best_ellipse = ellipse;
@@ -717,6 +711,75 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 	}
 
 	return ellipse;
+}
+
+CvSeq* starburst(CvSeq* seq, IplImage* sourceImage, CvMemStorage* mem_storage) {
+
+	CvSeq* results = cvCreateSeq(CV_32FC2, sizeof(CvSeq), sizeof(CvPoint2D32f), mem_storage);
+
+	CvRect contourBounds = ((CvContour*)seq)->rect;
+	CvPoint2D32f center = { contourBounds.x + contourBounds.width / 2, contourBounds.y + contourBounds.height / 2 };
+	
+	// Don't try to starburst if the center is near screen edge
+	if (center.x < 10 || center.x > 320 - 10 || center.y < 10 || center.y > 240 - 10) 
+		return seq;
+
+	float sin_theta, cos_theta;
+	CvPoint2D32f test_point;
+
+	float interpolated_intensity, prev_intensity = -1;
+	int l, r, u, d;
+	int ulc, urc, dlc, drc;
+
+	float ulcw, urcw, dlcw, drcw;
+
+	for (int i = 0; i < 360; i += 2) {
+		cos_theta = cos(i * M_PI / 180);
+		sin_theta = sin(i * M_PI / 180);
+		prev_intensity = -1;
+
+		for (int j = 0; j < 50; j++) {
+			test_point = { j*cos_theta + center.x, j*sin_theta + center.y };
+
+			l = floor(test_point.x - 0.5);
+			r = floor(test_point.x + 0.5);
+			d = floor(test_point.y - 0.5);
+			u = floor(test_point.y + 0.5);
+
+			if (l < 0 || r > 320 || d < 0 || u > 240) break;
+
+			ulc = cvGet2D(sourceImage, u, l).val[0];
+			urc = cvGet2D(sourceImage, u, r).val[0];
+			dlc = cvGet2D(sourceImage, d, l).val[0];
+			drc = cvGet2D(sourceImage, d, r).val[0];
+
+			ulcw = ((test_point.x - (l + 0.5)) * ((u + 0.5) - test_point.y));
+			urcw = (((r + 0.5) - test_point.x) * ((u + 0.5) - test_point.y));
+			dlcw = ((test_point.x - (l + 0.5)) * (test_point.y - (d + 0.5)));
+			drcw = (((r + 0.5) - test_point.x) * (test_point.y - (d + 0.5)));
+
+			interpolated_intensity =
+				ulcw * ulc +
+				urcw * urc +
+				dlcw * dlc +
+				drcw * drc;
+
+			if (prev_intensity > 0 && (interpolated_intensity - prev_intensity > 10)) {
+				cvSeqPush(results, &test_point);
+				break;
+			}
+
+			prev_intensity = interpolated_intensity;
+		}
+	}
+
+	for (int i = 0; i < results->total; i++) {
+		test_point = *((CvPoint2D32f*)cvGetSeqElem(results, i));
+		//cvLine(sourceImage, { center.x * 1024, center.y * 1024 }, { test_point.x * 1024, test_point.y * 1024 }, cvScalar(255), 1, CV_AA, 10);
+		cvSet2D(sourceImage, test_point.y, test_point.x, cvScalar(100));
+	}
+
+	return results;
 }
 
 
@@ -791,25 +854,25 @@ CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float tar
 			if (pendingSnapshot && currentImage) cvCopy(currentImage, test_snapshot_image[test_snapshot_image_index++]);
 		}
 
-		//CvMat* covMatrix = cvCreateMat(n, n, CV_32FC1);;
-		//CvMat* mean = NULL;
-		//CvMat* best_cont_array = cvCreateMat(best_contour->total, 2, CV_32S);
-		//CvPoint* PointArray = (CvPoint *)malloc(best_contour->total * sizeof(CvPoint));
-		//cvCvtSeqToArray(best_contour, best_cont_array->data.ptr);
-		//cvCvtSeqToArray(best_contour, PointArray);
-		//cvCalcCovarMatrix(best_cont_array->data, 1, covMatrix, mean, 0);
-
-		//CvSeq* hull = cvConvexHull2(best_contour, mem_storage, CV_CLOCKWISE, 1);
-
 		cvSet(image, cvScalar(0));
 		if (best_contour->total > 5) {
-			//cvDrawContours(image, best_contour, CV_RGB(255, 255, 255), CV_RGB(128, 128, 128), 0);
+			cvDrawContours(image, best_contour, CV_RGB(100, 100, 100), CV_RGB(128, 128, 128), 0);
 
 			CvBox2D* pupilBoxHistory = (frameCount > 20) ? prevPupilBoxes : NULL;
-			if (maskArea != NULL) best_box = ellipseFit2(best_contour, image, mem_storage, pupilBoxHistory);
+			if (maskArea != NULL) {
+				CvBox2D ellipse = ellipseFit2(best_contour, image, mem_storage, pupilBoxHistory);
+				ellipse.size.height *= 0.9;
+				ellipse.size.width *= 0.9;
+				cvEllipseBox(eye_image, ellipse, cvScalar(0), -1);
+
+				CvSeq* starburstContour = starburst(best_contour, eye_image, mem_storage);
+				if (starburstContour->total > 10) {
+					best_box = ellipseFit2(starburstContour, image, mem_storage, pupilBoxHistory);
+				}
+			}
 
 			// FALLBACK FOR NOW
-			if (maskArea == NULL) // || best_box.size.width == 0)
+			if (maskArea == NULL || best_box.size.width == 0)
 				best_box = cvFitEllipse2(best_contour);
 		}
 

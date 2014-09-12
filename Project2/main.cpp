@@ -79,7 +79,7 @@ int main(int argc, char* args[])
 	printf("Hello world\n");
 
 	TracksterRenderer renderer;
-	Trackster trackster;
+	TracksterAVI trackster;
 
 	renderer.hTrackster = &trackster;
 	
