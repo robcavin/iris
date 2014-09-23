@@ -3,9 +3,9 @@
 
 #define PER_VIDEO_SEGMENT_FRAME_COUNT 5000
 
-#define CM_TO_SCREEN      50
+#define CM_TO_SCREEN      60  // 23.5 * 2.54
 
-#define CM_DIM_OF_SCREEN  30
+#define CM_DIM_OF_SCREEN  24  // 24" wide * 2.54 * 1000 / 2560
 #define CM_PIXELS_PER_DIM 1000
 
 #define CM_PIXELS_CENTER  CM_PIXELS_PER_DIM/2
@@ -27,7 +27,7 @@ void TracksterAVI::Init() {
 
 	// Annoying but the AVI compression and decompression compresses the color space, so 
 	//  the threshold is quite different.
-	pupilThreshold = 3;
+	pupilThreshold = 15;
 }
 
 bool TracksterAVI::StartCapture() {
@@ -37,19 +37,23 @@ bool TracksterAVI::StartCapture() {
 
 	// Read in first training point
 	int frame, x, y;
-	fscanf_s(trainingFile, "%d,%d,%d\n", &frame, &x, &y);
-	trainingFrames[trainingIndex] = frame;
-	trainingPoints[trainingIndex] = { x, y };
+	float delta_x, delta_y;
+	fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+	trainingFrames[trainingPass][trainingIndex] = frame;
+	trainingPoints[trainingPass][trainingIndex] = { x, y };
+
+	// ONLY FOR FALSE EYE TEST
+	//trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
 
 	// Each file has 5000 frames
-	m_videoIndex = trainingFrames[trainingIndex] / PER_VIDEO_SEGMENT_FRAME_COUNT;
+	m_videoIndex = trainingFrames[trainingPass][trainingIndex] / PER_VIDEO_SEGMENT_FRAME_COUNT;
 
 	char filename[32];
 	sprintf_s(filename, "test_uc%d.avi", m_videoIndex++);
 
 	m_video = cvCaptureFromFile(filename);
 	
-	cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingFrames[trainingIndex] % PER_VIDEO_SEGMENT_FRAME_COUNT);
+	cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingFrames[trainingPass][trainingIndex] % PER_VIDEO_SEGMENT_FRAME_COUNT);
 
 	return true;
 }
@@ -72,7 +76,6 @@ bool TracksterAVI::NextFrame() {
 		image = cvQueryFrame(m_video);
 
 		if (!image) {
-			m_videoIndex = 0;
 			success = false;
 		}
 	}
@@ -93,40 +96,89 @@ bool TracksterAVI::NextFrame() {
 		
 		DoEyeTracking();
 
-		// We keep track of the past second or so's worth of projections for visualization, accuracy, precision calcs
 		if (trained) {
 			rollingProjections[rollingProjectionIndex] = GetProjection();
-			rollingProjectionIndex = (rollingProjectionIndex + 1) % NUM_ROLLING_PROJECTIONS;
+			rollingProjectionIndex++;
+			if (rollingProjectionIndex >= NUM_ROLLING_PROJECTIONS) rollingProjectionIndex = 0;
 		}
 
-		if (!trained && (frameCount + trainingFrames[0] == trainingFrames[trainingIndex])) {
+		// We keep track of the past second or so's worth of projections for visualization, accuracy, precision calcs
+		if ((trainingIndex < 5) && (frameCount + trainingFrames[0][0] == trainingFrames[trainingPass][trainingIndex])) {
 			
-			trainingDeltas[trainingIndex] = { delta_x, delta_y };
+			// COMMENT OUT FOR FALSE EYE TEST
+			trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
 
 			trainingIndex++;
 
 			if (trainingIndex < 5) {
 				int frame, x, y;
-				fscanf_s(trainingFile, "%d,%d,%d\n", &frame, &x, &y);
-				trainingFrames[trainingIndex] = frame;
-				trainingPoints[trainingIndex] = { x, y };
-			}
-			else {
-				Train(trainingDeltas, trainingPoints);
-
-				// Read first test point
-				int frame, x, y;
 				float delta_x, delta_y;
 				fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+				trainingFrames[trainingPass][trainingIndex] = frame;
+				trainingPoints[trainingPass][trainingIndex] = { x, y };
 
-				testIndex = 0;
-				testFrames[testIndex] = frame;
-				testPoints[testIndex] = { x, y };
-				testDeltas[testIndex] = { delta_x, delta_y };
+				displayStaticCrosshair = true;
+				staticCrosshairCoord = cvPointTo32f(trainingPoints[trainingPass][trainingIndex]);
+
+				// ONLY FOR FALSE EYE TEST
+				//trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
+			}
+			else {
+
+				trainingPass++;
+				if (trainingPass < 3) {
+					trainingIndex = 0;
+					int frame, x, y;
+					float delta_x, delta_y;
+					fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+					trainingFrames[trainingPass][trainingIndex] = frame;
+					trainingPoints[trainingPass][trainingIndex] = { x, y };
+
+					displayStaticCrosshair = true;
+					staticCrosshairCoord = cvPointTo32f(trainingPoints[trainingPass][trainingIndex]);
+
+					// ONLY FOR FALSE EYE TEST
+					//trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
+
+				}
+				else {
+					CvPoint2D32f averageDeltas[5] = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } };
+					for (int i = 0; i < 5; i++) {
+						for (int j = 0; j < trainingPass; j++) {
+							averageDeltas[i].x += trainingDeltas[j][i].x;
+							averageDeltas[i].y += trainingDeltas[j][i].y;
+						}
+
+						averageDeltas[i].x /= 3;
+						averageDeltas[i].y /= 3;
+					}
+
+					Train(averageDeltas, trainingPoints[0]);
+
+					// FIXUP FOR FALSE EYE TEST ONLY
+					//xParams.offsetX = delta_x;
+					//xParams.offsetY = delta_y;
+
+					//yParams.offsetX = delta_x;
+					//yParams.offsetY = delta_y;
+
+					// Read first test point
+					int frame, x, y;
+					float delta_x, delta_y;
+					fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+
+					testIndex = 0;
+					testFrames[testIndex] = frame;
+					testPoints[testIndex] = { x, y };
+					testDeltas[testIndex] = { delta_x, delta_y };
+
+					displayStaticCrosshair = true;
+					staticCrosshairCoord = cvPointTo32f(testPoints[testIndex]);
+				}
 			}
 		}
 
-		else if (trained && (frameCount + trainingFrames[0] == testFrames[testIndex])) {
+		else if (trained && (frameCount + trainingFrames[0][0] == testFrames[testIndex])) {
 
 			// Compute precision using last 100 samples
 			int curProjectionIndex = (rollingProjectionIndex - PRECISION_NUM_FRAMES + NUM_ROLLING_PROJECTIONS) % NUM_ROLLING_PROJECTIONS;
@@ -204,12 +256,37 @@ bool TracksterAVI::NextFrame() {
 			float delta_x, delta_y;
 			
 			int matchedItems = fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
-			if (matchedItems < 0) success = false;
+			if (matchedItems < 0) {
+				fclose(trainingFile);
+				fopen_s(&trainingFile, "results.txt", "r");
+				trainingIndex = 0;
+				testIndex = 0;
+				trainingPass = 0;
+				frameCount = -1;
 
-			testIndex++;
-			testFrames[testIndex] = frame;
-			testPoints[testIndex] = { x, y };
-			testDeltas[testIndex] = { delta_x, delta_y };
+				cvReleaseCapture(&m_video);
+
+				m_videoIndex = trainingFrames[0][0] / PER_VIDEO_SEGMENT_FRAME_COUNT;
+
+				char filename[32];
+				sprintf_s(filename, "test_uc%d.avi", m_videoIndex++);
+
+				m_video = cvCaptureFromFile(filename);
+
+				cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingFrames[trainingPass][trainingIndex] % PER_VIDEO_SEGMENT_FRAME_COUNT);
+
+				//success = false;
+			}
+			else {
+
+				testIndex++;
+				testFrames[testIndex] = frame;
+				testPoints[testIndex] = { x, y };
+				testDeltas[testIndex] = { delta_x, delta_y };
+
+				displayStaticCrosshair = true;
+				staticCrosshairCoord = cvPointTo32f(testPoints[testIndex]);
+			}
 		}
 
 		frameCount++;

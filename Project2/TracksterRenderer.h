@@ -28,9 +28,6 @@ class TracksterRenderer {
 public:
 	Trackster* hTrackster;
 
-	bool displayStaticCrosshair;
-	CvPoint2D32f staticCrosshairCoord;
-
 	bool init();
 	void close();
 

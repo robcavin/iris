@@ -89,8 +89,8 @@ Trackster::Trackster() {
 	h_AVIwriter = NULL;
 
 	frameCount = 0;
-	pupilThreshold = 1;
-	glintThreshold = 80;
+	pupilThreshold = 15;
+	glintThreshold = 250;
 	trained = false;
 
 	prevPupilBoxCenter = { 0.0f, 0.0f };
@@ -172,15 +172,23 @@ void Trackster::Init() {
 
 		m_Ret = is_SetDisplayMode(m_hCam, IS_SET_DM_DIB);
 
-		// display initialization
+		// disply initialization
 		IS_RECT aoi;
-		aoi.s32X = 1044;
-		aoi.s32Y = 902;
+		aoi.s32X = 844;
+		aoi.s32Y = 400;
 		aoi.s32Width = m_nSizeX;
 		aoi.s32Height = m_nSizeY;
 		setAOI(aoi);
 
-		m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
+		//m_Ret = is_SetGainBoost(m_hCam, IS_SET_GAINBOOST_ON);
+
+		// Set new mode (enable auto blacklevel)
+		int nMode = IS_AUTO_BLACKLEVEL_OFF;
+		m_Ret = is_Blacklevel(m_hCam, IS_BLACKLEVEL_CMD_SET_MODE, (void*)&nMode, sizeof(nMode));
+
+		int blackOffset = 0;
+		m_Ret = is_Blacklevel(m_hCam, IS_BLACKLEVEL_CMD_SET_OFFSET, (void*)&blackOffset, sizeof(blackOffset));
+		
 		//m_Ret = is_SetHardwareGain(m_hCam, IS_SET_ENABLE_AUTO_GAIN, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER);
 	}
 }
@@ -189,10 +197,10 @@ void Trackster::Init() {
 void Trackster::setAOI(IS_RECT aoi) {
 	m_Ret = is_AOI(m_hCam, IS_AOI_IMAGE_SET_AOI, (void*)&aoi, sizeof(aoi));
 
-	INT speed = 256;
+	INT speed = 100;
 	m_Ret = is_PixelClock(m_hCam, IS_PIXELCLOCK_CMD_SET, (void*)&speed, sizeof(speed));
 
-	m_Ret = is_SetFrameRate(m_hCam, 500, &m_fps);
+	m_Ret = is_SetFrameRate(m_hCam, 100, &m_fps);
 
 	double exposure = 0;
 	m_Ret = is_Exposure(m_hCam, IS_EXPOSURE_CMD_SET_EXPOSURE, &exposure, sizeof(exposure));
@@ -236,6 +244,13 @@ bool Trackster::NextFrame() {
 		}
 
 		DoEyeTracking();
+
+		if (trained) {
+			rollingProjections[rollingProjectionIndex] = GetProjection();
+			rollingProjectionIndex++;
+			if (rollingProjectionIndex >= NUM_ROLLING_PROJECTIONS) rollingProjectionIndex = 0;
+		}
+
 		is_UnlockSeqBuf(m_hCam, IS_IGNORE_PARAMETER, m_pcImageMemory);
 		frameCount++;
 	}
@@ -269,7 +284,7 @@ void Trackster::DoEyeTracking() {
 	cvThreshold(eye_image, working_image, glintThreshold, 255, CV_THRESH_BINARY);
 	if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
-	CvBox2D corneal_ref_box = this->findBounds(working_image, prevPupilBoxCenter, 100, NULL);
+	CvBox2D corneal_ref_box = this->findBounds(working_image, prevPupilBoxCenter, 150, NULL);
 
 	cvThreshold(eye_image, working_image, pupilThreshold, 255, CV_THRESH_BINARY_INV);
 
@@ -278,7 +293,7 @@ void Trackster::DoEyeTracking() {
 	cvSmooth(working_image, working_image, CV_GAUSSIAN, 5);
 	//if (pendingSnapshot) cvCopy(working_image, test_snapshot_image[test_snapshot_image_index++]);
 
-	CvBox2D pupil_box = this->findBounds(working_image, prevPupilBoxCenter, 2500, &corneal_ref_box);
+	CvBox2D pupil_box = this->findBounds(working_image, prevPupilBoxCenter, 6000, &corneal_ref_box);
 	
 	// Save pupil boxes for reference
 	for (int i = 9; i > 0; i--) {
@@ -319,9 +334,13 @@ void Trackster::DoEyeTracking() {
 
 		cvLine(eye_image, cvPointFrom32f(pupil_box.center), cvPointFrom32f(corneal_ref_box.center), CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
-		delta_x = pupil_center.x - corneal_ref_center.x;
-		delta_y = pupil_center.y - corneal_ref_center.y;
+		delta_x = pupil_center.x -corneal_ref_center.x;
+		delta_y = pupil_center.y -corneal_ref_center.y;
 	}
+
+	// For pupil only tracking
+	//delta_x = pupil_center.x;
+	//delta_y = pupil_center.y;
 
 	if (pendingSnapshot) {
 		cvCopy(eye_image, eye_snapshot_image);
@@ -345,7 +364,7 @@ CvSeq* removeBoxInclusionsFromSequence(CvSeq* seq, CvBox2D* maskArea, CvMemStora
 	
 	CvSeq* resultSeq = cvCreateSeq(seq->flags, seq->header_size, sizeof(CvPoint), mem_storage);
 
-	float mask_area_max_dim = 2.5*MAX(maskArea->size.height, maskArea->size.width);
+	float mask_area_max_dim = 1.5*MAX(maskArea->size.height, maskArea->size.width);
 
 	for (int i = 0; i < seq->total; i++) {
 		cur_point_ptr = (CvPoint*)cvGetSeqElem(seq, i);
@@ -441,8 +460,6 @@ bool pointInEllipse(CvPoint point, Ellipse_t ellipse){
 
 CvSeq* pointsNearEllipseBox(CvSeq* seq, CvBox2D ellipseBox, CvMemStorage* mem_storage){
 	
-	CvPoint center;
-
 	double sin_theta = sin(ellipseBox.angle / 180 * M_PI);
 	double cos_theta = cos(ellipseBox.angle / 180 * M_PI);
 
@@ -635,7 +652,7 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 
 	float sin_theta, cos_theta, width, height, aspect_ratio;
 
-	if (!prevPupilBoxes) {
+	/*if (!prevPupilBoxes) {
 		filtered_aspect_ratio = 1.0;
 		filtered_width = 50;
 		filtered_height = 50;
@@ -674,7 +691,7 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 			filtered_height = 50;
 			filtered_angle = 90;
 		}
-	}
+	}*/
 
 	if (prevPupilBoxes) {
 		for (int i = 0; i < 10; i++) {
@@ -711,14 +728,23 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 
 	ellipse.size = { 0.0, 0.0 };
 	if (best_sequence && best_count >= 5) {
-		cvDrawContours(image, best_sequence, CV_RGB(50, 50, 50), CV_RGB(128, 128, 128), 0);
+		cvDrawContours(image, best_sequence, CV_RGB(255, 255, 255), CV_RGB(128, 128, 128), 0);
+		
+		/*CvPoint2D32f prev_point, test_point;
+		prev_point = *((CvPoint2D32f*)cvGetSeqElem(best_sequence, 0));
+		for (int i = 1; i < best_sequence->total; i++) {
+			test_point = *((CvPoint2D32f*)cvGetSeqElem(best_sequence, i));
+			cvLine(image, { prev_point.x * 1024, prev_point.y * 1024 }, { test_point.x * 1024, test_point.y * 1024 }, cvScalar(255), 1, CV_AA, 10);
+			prev_point = test_point;
+			//cvSet2D(sourceImage, test_point.y, test_point.x, cvScalar(100));
+		}*/
+
 		ellipse = cvFitEllipse2(best_sequence);
 		//ellipse = best_ellipse;
 	}
 
 	return ellipse;
 }
-
 
 CvBox2D Trackster::findBounds(IplImage* image, CvPoint2D32f nearestTo, float targetArea, CvBox2D* maskArea) {
 	CvPoint offset = cvPoint(0, 0);
