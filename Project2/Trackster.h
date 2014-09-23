@@ -7,7 +7,8 @@
 #include <SDL.h>
 
 #define NUM_TEST_IMAGES 10
-#define NUM_ROLLING_PROJECTIONS 500
+#define NUM_ROLLING_PROJECTIONS 50
+#define NUM_ROLLING_DELTAS 50
 
 typedef struct {
 	float offsetX;
@@ -122,6 +123,9 @@ public:
 
 	CvPoint2D32f rollingProjections[NUM_ROLLING_PROJECTIONS];
 	int rollingProjectionIndex = 0;
+
+	CvPoint2D32f rollingDeltas[NUM_ROLLING_DELTAS];
+	int rollingDeltaIndex = 0;
 
 	bool displayStaticCrosshair;
 	CvPoint2D32f staticCrosshairCoord;

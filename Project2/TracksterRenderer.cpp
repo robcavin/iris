@@ -1,7 +1,7 @@
 #include "TracksterRenderer.h"
 #include <stdio.h>
 
-#define SCREEN_SCALE  1
+#define SCREEN_SCALE  0.5
 #define SCREEN_WIDTH  SCREEN_SCALE * (320+1000)
 #define SCREEN_HEIGHT SCREEN_SCALE * (400+1000)
 
@@ -45,7 +45,7 @@ bool TracksterRenderer::init()
 			}
 
 			if (SCREEN_SCALE != 1) {
-				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
+				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
 			}
 
 			gEyeTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
