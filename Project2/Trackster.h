@@ -122,6 +122,9 @@ public:
 
 	CvPoint2D32f rollingProjections[NUM_ROLLING_PROJECTIONS];
 	int rollingProjectionIndex = 0;
+
+	bool displayStaticCrosshair;
+	CvPoint2D32f staticCrosshairCoord;
 };
 
 #endif

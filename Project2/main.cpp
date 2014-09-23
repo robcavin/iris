@@ -80,7 +80,7 @@ int main(int argc, char* args[])
 
 	TracksterRenderer renderer;
 	TracksterAVI trackster;
-
+	
 	renderer.hTrackster = &trackster;
 	
 	renderer.init();
@@ -91,9 +91,10 @@ int main(int argc, char* args[])
 	CvPoint trainingPoints[5] = { { 500, 500 }, { 100, 100 }, { 900, 900 }, { 100, 900 }, { 900, 100 } };
 
 	int trainingIndex = -1;
+	int trainingPass = 0;
 
-	CvPoint2D32f trainingDeltas[5];
-	int trainingFrames[5];
+	CvPoint2D32f trainingDeltas[3][5];
+	int trainingFrames[3][5];
 
 	//cvSetMouseCallback(h_trainingView, mouseClickCallback, &trackster);
 
@@ -104,7 +105,7 @@ int main(int argc, char* args[])
 		while (SDL_PollEvent(&event)) {
 			
 			char key = (event.type == SDL_KEYDOWN) ? event.key.keysym.sym : -1;
-			
+			 
 			switch (key) {
 			case('x') :
 				runTracking = false;
@@ -114,9 +115,13 @@ int main(int argc, char* args[])
 					std::ofstream outFile;
 					outFile.open("results.txt");
 
-					for (int i = 0; i < 5; i++) {
-						outFile << trainingFrames[i] << "," << trainingPoints[i].x << "," << trainingPoints[i].y;
-						outFile << "\n";
+					for (int j = 0; j < 3; j++) {
+						for (int i = 0; i < 5; i++) {
+							outFile << trainingFrames[j][i] << ","
+								<< trainingPoints[i].x << "," << trainingPoints[i].y << ","
+								<< trainingDeltas[j][i].x << "," << trainingDeltas[j][i].y;
+							outFile << "\n";
+						}
 					}
 
 					for (int i = 0; i < testPointIndex; i++) {
@@ -150,39 +155,73 @@ int main(int argc, char* args[])
 				trackster.trained = false;
 
 				if (trainingIndex < 0) {
-					//showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
-					renderer.displayStaticCrosshair = true;
-					renderer.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
+					trackster.displayStaticCrosshair = true;
+					trackster.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
 				}
 
 				else if (trainingIndex < 4) {
 					// Capture points 0, 1, 2, and 3
-					trainingDeltas[trainingIndex].x = trackster.delta_x;
-					trainingDeltas[trainingIndex].y = trackster.delta_y;
-					trainingFrames[trainingIndex] = trackster.frameCount;
+					trainingDeltas[trainingPass][trainingIndex].x = trackster.delta_x;
+					trainingDeltas[trainingPass][trainingIndex].y = trackster.delta_y;
+					trainingFrames[trainingPass][trainingIndex] = trackster.frameCount;
 
 					//showCrosshair(h_trainingView, image, cvPointTo32f(trainingPoints[++trainingIndex]));
-					renderer.displayStaticCrosshair = true;
-					renderer.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
+					trackster.displayStaticCrosshair = true;
+					trackster.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
 				}
 
 				else if (trainingIndex == 4) {
-					renderer.displayStaticCrosshair = false;
+					trackster.displayStaticCrosshair = false;
 
 					// Capture point 4
-					trainingDeltas[trainingIndex].x = trackster.delta_x;
-					trainingDeltas[trainingIndex].y = trackster.delta_y;
-					trainingFrames[trainingIndex] = trackster.frameCount;
+					trainingDeltas[trainingPass][trainingIndex].x = trackster.delta_x;
+					trainingDeltas[trainingPass][trainingIndex].y = trackster.delta_y;
+					trainingFrames[trainingPass][trainingIndex] = trackster.frameCount;
 
 					// Train
-					trackster.Train(trainingDeltas, trainingPoints);
+					trainingPass++;
+ 					if (trainingPass < 3) {
+						trainingIndex = -1;
+						trackster.displayStaticCrosshair = true;
+						trackster.staticCrosshairCoord = cvPointTo32f(trainingPoints[++trainingIndex]);
+					}
+					else {
+						CvPoint2D32f averageDeltas[5] = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } };
+						for (int i = 0; i < 5; i++) {
+							for (int j = 0; j < trainingPass; j++) {
+								averageDeltas[i].x += trainingDeltas[j][i].x;
+								averageDeltas[i].y += trainingDeltas[j][i].y;
+							}
 
-					// Reset in case we want to retrain
-					trainingIndex = -1;
+							averageDeltas[i].x /= 3;
+							averageDeltas[i].y /= 3;
+						}
+
+  						trackster.Train(averageDeltas, trainingPoints);
+						// Reset in case we want to retrain
+						trainingIndex = -1;
+						trainingPass = 0;
+					}
 				}
 				break;
 			}
+
+
+			if ((event.type == SDL_MOUSEBUTTONDOWN) && trackster.trained && testPointIndex < 10) {
+
+				testFrames[testPointIndex] = trackster.frameCount;
+
+				CvPoint2D32f projeciton = trackster.GetProjection();
+				testProjections[testPointIndex] = projeciton;
+
+				testPoints[testPointIndex].x = event.button.x;
+				testPoints[testPointIndex].y = event.button.y;
+
+				testPointIndex++;
+			}
+
 		}
+
 
 		renderer.render();
 

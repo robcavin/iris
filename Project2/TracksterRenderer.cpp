@@ -3,7 +3,7 @@
 
 #define SCREEN_SCALE  1
 #define SCREEN_WIDTH  SCREEN_SCALE * (320+1000)
-#define SCREEN_HEIGHT SCREEN_SCALE * (500+1000)
+#define SCREEN_HEIGHT SCREEN_SCALE * (400+1000)
 
 bool TracksterRenderer::init()
 {
@@ -177,7 +177,8 @@ void TracksterRenderer::render() {
 		}
 	}
 
-	if (displayStaticCrosshair) {
+	if (hTrackster->displayStaticCrosshair) {
+		CvPoint2D32f staticCrosshairCoord = hTrackster->staticCrosshairCoord;
 		success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
 		SDL_RenderDrawLine(gRenderer, 
 			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5),
