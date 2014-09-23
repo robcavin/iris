@@ -245,6 +245,11 @@ bool Trackster::NextFrame() {
 
 		DoEyeTracking();
 
+		// Update rolling deltas and projections
+		rollingDeltas[rollingDeltaIndex] = cvPoint2D32f(delta_x, delta_y);
+		rollingDeltaIndex++;
+		if (rollingDeltaIndex >= NUM_ROLLING_PROJECTIONS) rollingDeltaIndex = 0;
+
 		if (trained) {
 			rollingProjections[rollingProjectionIndex] = GetProjection();
 			rollingProjectionIndex++;

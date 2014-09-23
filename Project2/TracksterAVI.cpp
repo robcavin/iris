@@ -46,14 +46,16 @@ bool TracksterAVI::StartCapture() {
 	//trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
 
 	// Each file has 5000 frames
-	m_videoIndex = trainingFrames[trainingPass][trainingIndex] / PER_VIDEO_SEGMENT_FRAME_COUNT;
+	trainingInitialFrame = trainingFrames[trainingPass][trainingIndex] - PRECISION_NUM_FRAMES;
+	
+	m_videoIndex = trainingInitialFrame / PER_VIDEO_SEGMENT_FRAME_COUNT;
 
 	char filename[32];
 	sprintf_s(filename, "test_uc%d.avi", m_videoIndex++);
 
 	m_video = cvCaptureFromFile(filename);
 	
-	cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingFrames[trainingPass][trainingIndex] % PER_VIDEO_SEGMENT_FRAME_COUNT);
+	cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingInitialFrame % PER_VIDEO_SEGMENT_FRAME_COUNT);
 
 	return true;
 }
@@ -96,6 +98,10 @@ bool TracksterAVI::NextFrame() {
 		
 		DoEyeTracking();
 
+		rollingDeltas[rollingDeltaIndex] = cvPoint2D32f(delta_x, delta_y);
+		rollingDeltaIndex++;
+		if (rollingDeltaIndex >= NUM_ROLLING_PROJECTIONS) rollingDeltaIndex = 0;
+
 		if (trained) {
 			rollingProjections[rollingProjectionIndex] = GetProjection();
 			rollingProjectionIndex++;
@@ -103,10 +109,20 @@ bool TracksterAVI::NextFrame() {
 		}
 
 		// We keep track of the past second or so's worth of projections for visualization, accuracy, precision calcs
-		if ((trainingIndex < 5) && (frameCount + trainingFrames[0][0] == trainingFrames[trainingPass][trainingIndex])) {
+		if ((trainingIndex < 5) && (frameCount + trainingInitialFrame == trainingFrames[trainingPass][trainingIndex])) {
 			
 			// COMMENT OUT FOR FALSE EYE TEST
-			trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
+			int curDeltaIndex = (rollingDeltaIndex - PRECISION_NUM_FRAMES + NUM_ROLLING_DELTAS) % NUM_ROLLING_DELTAS;
+			CvPoint2D32f averageDelta = { 0, 0 };
+			for (curDeltaIndex; curDeltaIndex != rollingDeltaIndex; curDeltaIndex = (curDeltaIndex + 1) % NUM_ROLLING_DELTAS) {
+				averageDelta.x += delta_x;
+				averageDelta.y += delta_y;
+			}
+			averageDelta.x /= PRECISION_NUM_FRAMES;
+			averageDelta.y /= PRECISION_NUM_FRAMES;
+
+			trainingDeltas[trainingPass][trainingIndex] = averageDelta;
+			//trainingDeltas[trainingPass][trainingIndex] = { delta_x, delta_y };
 
 			trainingIndex++;
 
@@ -178,7 +194,7 @@ bool TracksterAVI::NextFrame() {
 			}
 		}
 
-		else if (trained && (frameCount + trainingFrames[0][0] == testFrames[testIndex])) {
+		else if (trained && (frameCount + trainingInitialFrame == testFrames[testIndex])) {
 
 			// Compute precision using last 100 samples
 			int curProjectionIndex = (rollingProjectionIndex - PRECISION_NUM_FRAMES + NUM_ROLLING_PROJECTIONS) % NUM_ROLLING_PROJECTIONS;
@@ -257,23 +273,33 @@ bool TracksterAVI::NextFrame() {
 			
 			int matchedItems = fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
 			if (matchedItems < 0) {
-				fclose(trainingFile);
-				fopen_s(&trainingFile, "results.txt", "r");
+
+				// Reset training
 				trainingIndex = 0;
 				testIndex = 0;
 				trainingPass = 0;
 				frameCount = -1;
 
+				fclose(trainingFile);
+				fopen_s(&trainingFile, "results.txt", "r");
+
+				int frame, x, y;
+				float delta_x, delta_y;
+				fscanf_s(trainingFile, "%d,%d,%d,%f,%f\n", &frame, &x, &y, &delta_x, &delta_y);
+				trainingFrames[trainingPass][trainingIndex] = frame;
+				trainingPoints[trainingPass][trainingIndex] = { x, y };
+
+				// Reset video
 				cvReleaseCapture(&m_video);
 
-				m_videoIndex = trainingFrames[0][0] / PER_VIDEO_SEGMENT_FRAME_COUNT;
+				m_videoIndex = trainingInitialFrame / PER_VIDEO_SEGMENT_FRAME_COUNT;
 
 				char filename[32];
 				sprintf_s(filename, "test_uc%d.avi", m_videoIndex++);
 
 				m_video = cvCaptureFromFile(filename);
 
-				cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingFrames[trainingPass][trainingIndex] % PER_VIDEO_SEGMENT_FRAME_COUNT);
+				cvSetCaptureProperty(m_video, CV_CAP_PROP_POS_FRAMES, trainingInitialFrame % PER_VIDEO_SEGMENT_FRAME_COUNT);
 
 				//success = false;
 			}

@@ -29,6 +29,7 @@ private:
 	int trainingIndex = 0;
 	int testIndex = 0;
 
+	int trainingInitialFrame = 0;
 	FILE *trainingFile;
 
 	IplImage* prev_image;
