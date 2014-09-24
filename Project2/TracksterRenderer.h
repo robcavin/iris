@@ -21,6 +21,9 @@ class TracksterRenderer {
 
 	SDL_Texture* gTestImageTexture[NUM_TEST_IMAGES];
 
+	SDL_Texture* gFixationTarget;
+
+
 	SDL_Texture* loadTexture(char* path);
 	
 	void updateTexture(SDL_Texture* texture, IplImage* image);
