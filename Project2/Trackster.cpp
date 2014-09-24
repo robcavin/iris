@@ -315,7 +315,7 @@ void Trackster::DoEyeTracking() {
 	pupil_box.size.width *= scale;
 	pupil_box.size.height *= scale;
 
-	//cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
+	cvEllipseBox(eye_image, pupil_box, CV_RGB(255, 255, 255), 1, CV_AA, log_scale);
 
 	CvPoint start = { pupil_box.center.x, 0 };
 	CvPoint end = { pupil_box.center.x, size.height * scale };
@@ -698,12 +698,12 @@ CvBox2D ellipseFit2(CvSeq* contour, IplImage* image, CvMemStorage* memStorage, C
 		}
 	}*/
 
-	if (prevPupilBoxes) {
+	/*if (prevPupilBoxes) {
 		for (int i = 0; i < 10; i++) {
 			printf("%f ", prevPupilBoxes[i].size.width);
 		}
 		printf("\n");
-	}
+	}*/
 
 	for (int i = 0; i < 100; i++) {
 		current_sequence = fitEllipseRANSAC2(contour, image, ellipse, memStorage);
