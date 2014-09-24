@@ -1,9 +1,11 @@
 #include "TracksterRenderer.h"
 #include <stdio.h>
+#include "SDL_image.h"
 
 #define SCREEN_SCALE  0.5
 #define SCREEN_WIDTH  SCREEN_SCALE * (320+1000)
 #define SCREEN_HEIGHT SCREEN_SCALE * (400+1000)
+#define FIXATION_TARGET_RADIUS 25
 
 bool TracksterRenderer::init()
 {
@@ -11,53 +13,60 @@ bool TracksterRenderer::init()
 	bool success = true;
 
 	//Initialize SDL
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
-	{
+	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
 		success = false;
 	}
-	else
-	{
+	else {
 		//Create window
-		gWindow = SDL_CreateWindow("IRIS", 
-			SDL_WINDOWPOS_UNDEFINED, 
-			SDL_WINDOWPOS_UNDEFINED, 
-			SCREEN_WIDTH, 
+		gWindow = SDL_CreateWindow("IRIS",
+			SDL_WINDOWPOS_UNDEFINED,
+			SDL_WINDOWPOS_UNDEFINED,
+			SCREEN_WIDTH,
 			SCREEN_HEIGHT,
 			SDL_WINDOW_SHOWN);
-		
-		if (gWindow == NULL)
-		{
+
+		if (gWindow == NULL) {
 			printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
 			success = false;
 		}
-		else
-		{
-			//Get window surface
-			gScreenSurface = SDL_GetWindowSurface(gWindow);
 
-			//Create renderer for window
-			gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED);
-			if (gRenderer == NULL)
-			{
-				printf("Renderer could not be created! SDL Error: %s\n", SDL_GetError());
+		else {
+			//Initialize PNG loading
+			int imgFlags = IMG_INIT_PNG;
+			if (!(IMG_Init(imgFlags) & imgFlags)) {
+				printf("SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError());
 				success = false;
 			}
 
-			if (SCREEN_SCALE != 1) {
-				SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
+			else {
+				//Get window surface
+				gScreenSurface = SDL_GetWindowSurface(gWindow);
+
+				//Create renderer for window
+				gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED);
+				if (gRenderer == NULL) {
+					printf("Renderer could not be created! SDL Error: %s\n", SDL_GetError());
+					success = false;
+				}
+
+				if (SCREEN_SCALE != 1) {
+					SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
+				}
+
+				gEyeTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
+				gWorkingTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
+
+				for (int i = 0; i < NUM_TEST_IMAGES; i++) {
+					gTestImageTexture[i] = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
+				}
+
+				gFixationTarget = loadTexture("target.png");
+
+				//Clear screen
+				SDL_SetRenderDrawColor(gRenderer, 0, 0, 255, 255);
+				SDL_RenderClear(gRenderer);
 			}
-
-			gEyeTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
-			gWorkingTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
-
-			for (int i = 0; i < NUM_TEST_IMAGES; i++) {
-				gTestImageTexture[i] = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 320, 240);
-			}
-
-			//Clear screen
-			SDL_SetRenderDrawColor(gRenderer, 0, 0, 255, 255);
-			SDL_RenderClear(gRenderer);
 		}
 	}
 
@@ -70,10 +79,10 @@ SDL_Texture* TracksterRenderer::loadTexture(char* path)
 	SDL_Texture* newTexture = NULL;
 
 	//Load image at specified path
-	SDL_Surface* loadedSurface = SDL_LoadBMP(path);
+	SDL_Surface* loadedSurface = IMG_Load(path);
 	if (loadedSurface == NULL)
 	{
-		printf("Unable to load image %s! SDL_image Error: %s\n", path, SDL_GetError());
+		printf("Unable to load image %s! SDL_image Error: %s\n", path, IMG_GetError());
 	}
 	else
 	{
@@ -92,7 +101,7 @@ SDL_Texture* TracksterRenderer::loadTexture(char* path)
 }
 
 void TracksterRenderer::updateTexture(SDL_Texture* texture, IplImage* image) {
-	
+
 	if (!image) return;
 
 	char* sourceGrayscalePixels;
@@ -127,7 +136,7 @@ void TracksterRenderer::render() {
 	SDL_Rect rect;
 	updateTexture(gEyeTexture, hTrackster->GetEyeImage());
 
-	rect = { SCREEN_SCALE * 0, SCREEN_SCALE * 0, SCREEN_SCALE * 1280, SCREEN_SCALE *  960};
+	rect = { SCREEN_SCALE * 0, SCREEN_SCALE * 0, SCREEN_SCALE * 1280, SCREEN_SCALE * 960 };
 	success = SDL_RenderCopy(gRenderer, gEyeTexture, NULL, &rect);
 
 	rect = { SCREEN_SCALE * 1000, SCREEN_SCALE * 0, SCREEN_SCALE * 320, SCREEN_SCALE * 240 };
@@ -149,6 +158,25 @@ void TracksterRenderer::render() {
 		}
 	}
 
+	if (hTrackster->displayStaticCrosshair) {
+		CvPoint2D32f staticCrosshairCoord = hTrackster->staticCrosshairCoord;
+		
+		rect = { 
+			SCREEN_SCALE * (staticCrosshairCoord.x - FIXATION_TARGET_RADIUS), SCREEN_SCALE * (staticCrosshairCoord.y - FIXATION_TARGET_RADIUS), 
+			SCREEN_SCALE * 2 * FIXATION_TARGET_RADIUS, SCREEN_SCALE * 2 * FIXATION_TARGET_RADIUS };
+		success = SDL_RenderCopy(gRenderer, gFixationTarget, NULL, &rect);
+
+		/*success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
+		SDL_RenderDrawLine(gRenderer,
+			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5),
+			SCREEN_SCALE*(staticCrosshairCoord.x + 5), SCREEN_SCALE*(staticCrosshairCoord.y + 5));
+
+		SDL_RenderDrawLine(gRenderer,
+			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y + 5),
+			SCREEN_SCALE*(staticCrosshairCoord.x + 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5));
+			*/
+	}
+
 	if (hTrackster->trained) {
 
 		// Set the tracker to update at the same rate as the renderer
@@ -161,9 +189,9 @@ void TracksterRenderer::render() {
 		int curProjectionIndex = (hTrackster->rollingProjectionIndex - 25 + NUM_ROLLING_PROJECTIONS) % NUM_ROLLING_PROJECTIONS;
 		CvPoint2D32f target;
 		for (curProjectionIndex; curProjectionIndex != targetProjectionIndex;) {
-			
+
 			target = projections[curProjectionIndex];
-			
+
 			success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
 			success = SDL_RenderDrawLine(gRenderer,
 				SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*(target.y - 5),
@@ -172,21 +200,9 @@ void TracksterRenderer::render() {
 				SCREEN_SCALE*(target.x - 5), SCREEN_SCALE*(target.y + 5),
 				SCREEN_SCALE*(target.x + 5), SCREEN_SCALE*(target.y - 5));
 
-			curProjectionIndex++; 
+			curProjectionIndex++;
 			if (curProjectionIndex >= NUM_ROLLING_PROJECTIONS) curProjectionIndex = 0;
 		}
-	}
-
-	if (hTrackster->displayStaticCrosshair) {
-		CvPoint2D32f staticCrosshairCoord = hTrackster->staticCrosshairCoord;
-		success = SDL_SetRenderDrawColor(gRenderer, 255, 255, 255, 255);
-		SDL_RenderDrawLine(gRenderer, 
-			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5),
-			SCREEN_SCALE*(staticCrosshairCoord.x + 5), SCREEN_SCALE*(staticCrosshairCoord.y + 5));
-
-		SDL_RenderDrawLine(gRenderer, 
-			SCREEN_SCALE*(staticCrosshairCoord.x - 5), SCREEN_SCALE*(staticCrosshairCoord.y + 5),
-			SCREEN_SCALE*(staticCrosshairCoord.x + 5), SCREEN_SCALE*(staticCrosshairCoord.y - 5));
 	}
 
 	//Update screen
